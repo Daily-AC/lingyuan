@@ -25,11 +25,23 @@ pub enum Cmd {
     },
     /// 排队下一动作
     Act {
-        /// 动作动词：move | wait
+        /// 动作动词：move | wait | gather | eat | craft | place | pickup | drop
         verb: String,
-        /// 例：--dir=north
+        /// move 用：--dir=north|south|east|west
         #[arg(long)]
         dir: Option<String>,
+        /// 目标 tile 坐标 "x,y"，gather/pickup/place 用
+        #[arg(long)]
+        pos: Option<String>,
+        /// 物品名（snake_case），eat/place/drop 用
+        #[arg(long)]
+        item: Option<String>,
+        /// craft 配方 id（snake_case），如 bamboo_spear
+        #[arg(long)]
+        recipe: Option<String>,
+        /// drop 数量
+        #[arg(long, default_value_t = 1)]
+        n: u16,
     },
     /// 删 token 文件
     Clear,
