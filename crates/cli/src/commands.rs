@@ -42,6 +42,12 @@ pub enum Cmd {
         /// drop 数量
         #[arg(long, default_value_t = 1)]
         n: u16,
+        /// attack 用：agent | creature
+        #[arg(long)]
+        target_kind: Option<String>,
+        /// attack 用：agent_id（agent）或 creature_id（creature）
+        #[arg(long)]
+        target: Option<String>,
     },
     /// 删 token 文件
     Clear,

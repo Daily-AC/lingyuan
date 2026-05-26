@@ -43,6 +43,13 @@ const BUILDING_COLOR: Record<string, number> = {
   cooking_stove: 0x8c7c5c,
 };
 
+const CREATURE_COLOR: Record<string, number> = {
+  rabbit: 0xe0e0d0,
+  deer: 0xa0805c,
+  wolf: 0x4c4a48,
+  night_demon: 0x40285a,
+};
+
 export class EntityLayer {
   container = new Container();
 
@@ -69,6 +76,17 @@ export class EntityLayer {
         const r = tileSize * 0.42;
         g.rect(cx - r, cy - r, r * 2, r * 2).fill(color);
         g.rect(cx - r, cy - r, r * 2, r * 2).stroke({ color: 0xf2efe4, width: 1 });
+      } else if (category === 'creature') {
+        color = CREATURE_COLOR[sub] ?? 0xb83a2e;
+        const r = tileSize * 0.38;
+        // 菱形：旋转 45° 方形
+        const cont = new Graphics();
+        cont.poly([cx, cy - r, cx + r, cy, cx, cy + r, cx - r, cy]).fill(color);
+        cont.poly([cx, cy - r, cx + r, cy, cx, cy + r, cx - r, cy]).stroke({
+          color: 0x2a2826,
+          width: 1,
+        });
+        this.container.addChild(cont);
       }
     }
     this.container.addChild(g);

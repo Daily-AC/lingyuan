@@ -41,6 +41,8 @@ async fn main() -> anyhow::Result<()> {
             item,
             recipe,
             n,
+            target_kind,
+            target,
         } => {
             let t = token_store::load().context("not joined yet")?;
             let c = client::Client::from_token(t);
@@ -82,6 +84,20 @@ async fn main() -> anyhow::Result<()> {
                 "drop" => {
                     let i = item.context("--item required for drop")?;
                     serde_json::json!({"kind":"drop","data":{"item": i, "n": n}})
+                }
+                "attack" => {
+                    let tk = target_kind
+                        .context("--target-kind=agent|creature required for attack")?;
+                    let tid = target.context("--target=<id> required for attack")?;
+                    let target_value = if tk == "creature" {
+                        serde_json::Value::Number(tid.parse::<u64>()?.into())
+                    } else {
+                        serde_json::Value::String(tid)
+                    };
+                    serde_json::json!({
+                        "kind":"attack",
+                        "data": {"target": { "target_kind": tk, "target_id": target_value }}
+                    })
                 }
                 v => anyhow::bail!("unknown verb {v}"),
             };

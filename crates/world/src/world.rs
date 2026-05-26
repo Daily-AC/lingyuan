@@ -1,9 +1,10 @@
 use crate::{
-    action::Action,
+    action::{Action, AttackTarget},
     agent::{Agent, AgentId, AgentState},
     building::{Building, BuildingKind},
     clock::{WorldClock, TICKS_PER_DAY},
     coord::{Direction, TileCoord},
+    creature::{Creature, CreatureId},
     entity::Entity,
     event::TickEvent,
     gen,
@@ -36,6 +37,8 @@ pub struct World {
     pub agents: BTreeMap<AgentId, Agent>,
     pub entities: BTreeMap<TileCoord, Entity>,
     pub buildings: BTreeMap<TileCoord, Building>,
+    pub creatures: BTreeMap<CreatureId, Creature>,
+    pub next_creature_id: CreatureId,
     pub max_agents: usize,
     #[serde(skip)]
     pending_events: Vec<TickEvent>,
@@ -52,6 +55,8 @@ impl World {
             agents: BTreeMap::new(),
             entities,
             buildings: BTreeMap::new(),
+            creatures: BTreeMap::new(),
+            next_creature_id: 0,
             max_agents: 64,
             pending_events: Vec::new(),
         }
@@ -98,6 +103,28 @@ impl World {
         for (aid, action) in acts {
             self.resolve(&aid, action);
         }
+
+        // 怪物 AI（在 agents 动作之后，但在死亡处理之前）
+        let mut ai_events = crate::systems::creature_ai::step_creatures(
+            self.clock.tick,
+            &self.grid,
+            &mut self.agents,
+            &mut self.creatures,
+        );
+        self.pending_events.append(&mut ai_events);
+
+        // 夜晚 spawn
+        let is_night = self.clock.is_night();
+        let mut spawn_events = crate::systems::spawn::step_spawn(
+            self.clock.tick,
+            self.seed,
+            is_night,
+            &self.grid,
+            &self.agents,
+            &mut self.creatures,
+            &mut self.next_creature_id,
+        );
+        self.pending_events.append(&mut spawn_events);
 
         // 自然系统
         crate::systems::natural::step_status(self.clock.tick, &mut self.agents);
@@ -163,7 +190,83 @@ impl World {
             Action::Place { item, pos } => self.resolve_place(aid.clone(), item, pos),
             Action::PickUp { pos } => self.resolve_pickup(aid.clone(), pos),
             Action::Drop { item, n } => self.resolve_drop(aid.clone(), item, n),
+            Action::Attack { target } => self.resolve_attack(aid.clone(), target),
         }
+    }
+
+    fn resolve_attack(&mut self, aid: AgentId, target: AttackTarget) {
+        let Some(agent) = self.agents.get(&aid) else {
+            return;
+        };
+        let attacker_pos = agent.pos;
+        if agent.status.stamina < 5 {
+            self.pending_events.push(TickEvent::AgentAttackFailed {
+                agent: aid,
+                reason: "exhausted".into(),
+            });
+            return;
+        }
+        let weapon = agent_best_weapon(agent);
+        let dmg = crate::combat::resolve_attack_damage(weapon);
+        match target {
+            AttackTarget::Agent(target_id) => {
+                let Some(target_agent) = self.agents.get(&target_id) else {
+                    self.pending_events.push(TickEvent::AgentAttackFailed {
+                        agent: aid,
+                        reason: "target not found".into(),
+                    });
+                    return;
+                };
+                if attacker_pos.manhattan(target_agent.pos) > 1 {
+                    self.pending_events.push(TickEvent::AgentAttackFailed {
+                        agent: aid,
+                        reason: "out of range".into(),
+                    });
+                    return;
+                }
+                let target_mut = self.agents.get_mut(&target_id).unwrap();
+                target_mut.status.hp = (target_mut.status.hp - dmg).max(0);
+                self.pending_events.push(TickEvent::AgentAttackedAgent {
+                    attacker: aid.clone(),
+                    target: target_id,
+                    damage: dmg,
+                    weapon: weapon.map(|w| format!("{:?}", w)),
+                });
+            }
+            AttackTarget::Creature(cid) => {
+                let Some(creature) = self.creatures.get(&cid) else {
+                    self.pending_events.push(TickEvent::AgentAttackFailed {
+                        agent: aid,
+                        reason: "creature not found".into(),
+                    });
+                    return;
+                };
+                if attacker_pos.manhattan(creature.pos) > 1 {
+                    self.pending_events.push(TickEvent::AgentAttackFailed {
+                        agent: aid,
+                        reason: "out of range".into(),
+                    });
+                    return;
+                }
+                let creature_mut = self.creatures.get_mut(&cid).unwrap();
+                creature_mut.hp = (creature_mut.hp - dmg).max(0);
+                let is_dead = creature_mut.hp <= 0;
+                let pos = creature_mut.pos;
+                let kind = creature_mut.kind;
+                self.pending_events.push(TickEvent::AgentAttackedCreature {
+                    attacker: aid.clone(),
+                    creature_id: cid,
+                    damage: dmg,
+                });
+                if is_dead {
+                    self.creatures.remove(&cid);
+                    self.pending_events.push(TickEvent::CreatureKilled { id: cid, kind, at: pos });
+                }
+            }
+        }
+        let attacker = self.agents.get_mut(&aid).unwrap();
+        attacker.status.stamina = (attacker.status.stamina - 5).max(0);
+        attacker.last_action_tick = self.clock.tick;
     }
 
     fn resolve_move(&mut self, aid: AgentId, dir: Direction) {
@@ -550,6 +653,17 @@ impl World {
                 });
             }
         }
+        for c in self.creatures.values() {
+            if c.pos.manhattan(center) <= VISION_RADIUS {
+                entities_view.push(VisibleEntity::Creature {
+                    id: c.id,
+                    pos: c.pos,
+                    creature_kind: c.kind,
+                    hp: c.hp,
+                    hostile: c.kind.is_hostile(),
+                });
+            }
+        }
 
         Some(Observation {
             tick: self.clock.tick,
@@ -574,6 +688,16 @@ impl World {
             visible_entities: entities_view,
             recent_events: Vec::new(),
         })
+    }
+}
+
+fn agent_best_weapon(a: &Agent) -> Option<ItemKind> {
+    if a.inventory.count(ItemKind::StoneAxe) > 0 {
+        Some(ItemKind::StoneAxe)
+    } else if a.inventory.count(ItemKind::BambooSpear) > 0 {
+        Some(ItemKind::BambooSpear)
+    } else {
+        None
     }
 }
 
@@ -810,5 +934,55 @@ mod tests {
     #[test]
     fn season_constant_imported() {
         let _: Season = Season::Chun;
+    }
+
+    #[test]
+    fn agent_attacks_agent_damages_target() {
+        let mut w = World::bootstrap(42);
+        let alice = w.join("alice".into()).unwrap();
+        let bob = w.join("bob".into()).unwrap();
+        // 强制相邻
+        let pos = w.agents[&alice].pos;
+        let nearby = TileCoord::new(pos.x + 1, pos.y);
+        if w.grid.get(nearby).map(|t| t.is_walkable()).unwrap_or(false) {
+            w.agents.get_mut(&bob).unwrap().pos = nearby;
+        } else {
+            return; // 跳过本测试（罕见 seed 冲突）
+        }
+        let before = w.agents[&bob].status.hp;
+        let _ = w.step(vec![(
+            alice.clone(),
+            Action::Attack {
+                target: AttackTarget::Agent(bob.clone()),
+            },
+        )]);
+        assert!(w.agents[&bob].status.hp < before);
+    }
+
+    #[test]
+    fn agent_kills_creature() {
+        use crate::creature::{Creature, CreatureKind};
+        let mut w = World::bootstrap(42);
+        let alice = w.join("alice".into()).unwrap();
+        let pos = w.agents[&alice].pos;
+        let target_pos = TileCoord::new(pos.x + 1, pos.y);
+        if !w.grid.get(target_pos).map(|t| t.is_walkable()).unwrap_or(false) {
+            return;
+        }
+        // 给 alice 配石斧（伤害 10）→ 1 hit 即可
+        w.agents.get_mut(&alice).unwrap().inventory.add(ItemKind::StoneAxe, 1);
+        w.next_creature_id += 1;
+        let cid = w.next_creature_id;
+        w.creatures.insert(
+            cid,
+            Creature::new(cid, CreatureKind::Rabbit, target_pos, w.clock.tick),
+        );
+        let _ = w.step(vec![(
+            alice.clone(),
+            Action::Attack {
+                target: AttackTarget::Creature(cid),
+            },
+        )]);
+        assert!(!w.creatures.contains_key(&cid), "rabbit should be dead");
     }
 }
