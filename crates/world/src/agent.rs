@@ -1,7 +1,7 @@
-use crate::coord::TileCoord;
+use crate::{coord::TileCoord, item::Inventory};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct AgentId(pub String);
 
 impl AgentId {
@@ -57,6 +57,7 @@ pub struct Agent {
     pub state: AgentState,
     pub last_action_tick: u64,
     pub joined_tick: u64,
+    pub inventory: Inventory,
 }
 
 impl Agent {
@@ -69,6 +70,7 @@ impl Agent {
             state: AgentState::Alive,
             last_action_tick: tick,
             joined_tick: tick,
+            inventory: Inventory::new(),
         }
     }
 }

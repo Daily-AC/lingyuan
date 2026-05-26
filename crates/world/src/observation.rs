@@ -1,8 +1,11 @@
 use crate::{
     agent::{AgentId, AgentState, AgentStatus},
+    building::BuildingKind,
     clock::{DayPhase, Season},
     coord::TileCoord,
     event::TickEvent,
+    item::{ItemKind, ItemStack},
+    plant::PlantKind,
     tile::Tile,
 };
 use serde::{Deserialize, Serialize};
@@ -35,6 +38,7 @@ pub struct SelfView {
     pub pos: TileCoord,
     pub status: AgentStatus,
     pub state: AgentState,
+    pub inventory: Vec<ItemStack>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,5 +61,23 @@ pub enum VisibleEntity {
         name: String,
         pos: TileCoord,
         hp: i16,
+    },
+    Plant {
+        pos: TileCoord,
+        #[serde(rename = "species")]
+        plant_kind: PlantKind,
+        available: bool,
+    },
+    ItemDrop {
+        pos: TileCoord,
+        item: ItemKind,
+        n: u16,
+        expires_in: u64,
+    },
+    Building {
+        pos: TileCoord,
+        #[serde(rename = "subkind")]
+        building_kind: BuildingKind,
+        owner: AgentId,
     },
 }

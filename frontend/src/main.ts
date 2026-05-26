@@ -31,13 +31,13 @@ function renderAgents(agents: SpectatorAgent[]): void {
   list.replaceChildren();
   for (const a of agents) {
     const li = document.createElement('li');
-    li.className = 'agent-row';
+    li.className = `agent-row agent-state-${a.state}`;
     const name = document.createElement('span');
     name.className = 'agent-name';
     name.textContent = a.name;
     const meta = document.createElement('span');
     meta.className = 'agent-meta';
-    meta.textContent = `(${a.pos.x},${a.pos.y}) hp ${a.hp}`;
+    meta.textContent = `(${a.pos.x},${a.pos.y}) hp${a.hp} 饥${a.hunger}`;
     li.appendChild(name);
     li.appendChild(meta);
     list.appendChild(li);
@@ -60,6 +60,26 @@ function describeEvent(ev: TickEvent): string {
       return `${ev.data.agent} 移 (${ev.data.from.x},${ev.data.from.y})→(${ev.data.to.x},${ev.data.to.y})`;
     case 'agent_move_failed':
       return `${ev.data.agent} 移失败：${ev.data.reason}`;
+    case 'agent_gathered':
+      return `${ev.data.agent} 采 ${ev.data.item} ×${ev.data.n} @(${ev.data.from.x},${ev.data.from.y})`;
+    case 'agent_gather_failed':
+      return `${ev.data.agent} 采失败：${ev.data.reason}`;
+    case 'agent_ate':
+      return `${ev.data.agent} 食 ${ev.data.item} (饥+${ev.data.hunger_gain} 血+${ev.data.hp_gain})`;
+    case 'agent_crafted':
+      return `${ev.data.agent} 造 ${ev.data.recipe}`;
+    case 'agent_craft_failed':
+      return `${ev.data.agent} 造失败：${ev.data.reason}`;
+    case 'agent_placed':
+      return `${ev.data.agent} 置 ${ev.data.building} @(${ev.data.at.x},${ev.data.at.y})`;
+    case 'agent_picked_up':
+      return `${ev.data.agent} 拾 ${ev.data.item} ×${ev.data.n}`;
+    case 'agent_dropped':
+      return `${ev.data.agent} 弃 ${ev.data.item} ×${ev.data.n}`;
+    case 'agent_died':
+      return `${ev.data.agent} 殁 @(${ev.data.at.x},${ev.data.at.y}) · ${ev.data.cause}`;
+    case 'agent_respawned':
+      return `${ev.data.agent} 还魂 @(${ev.data.at.x},${ev.data.at.y})`;
     case 'season_changed':
       return `节气转 → ${ev.data.to}`;
     case 'day_started':
@@ -107,11 +127,13 @@ async function main(): Promise<void> {
   const onMsg = (msg: ServerMsg): void => {
     if (msg.kind === 'snapshot') {
       stage.setGrid(msg.grid_width, msg.grid_height, msg.tiles);
+      stage.setEntities(msg.entities);
       stage.setAgents(msg.agents);
       renderClock(msg.tick);
       renderAgents(msg.agents);
     } else {
-      const { tick, agents, events } = msg.view;
+      const { tick, agents, entities, events } = msg.view;
+      stage.setEntities(entities);
       stage.setAgents(agents);
       renderClock(tick);
       renderAgents(agents);
