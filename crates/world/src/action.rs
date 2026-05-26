@@ -1,4 +1,4 @@
-use crate::coord::Direction;
+use crate::{coord::Direction, coord::TileCoord, item::ItemKind};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -8,6 +8,12 @@ pub enum Action {
     #[default]
     Wait,
     Observe,
+    Gather { target: TileCoord },
+    Eat { item: ItemKind },
+    Craft { recipe: String },
+    Place { item: ItemKind, pos: TileCoord },
+    PickUp { pos: TileCoord },
+    Drop { item: ItemKind, n: u16 },
 }
 
 #[cfg(test)]
@@ -28,6 +34,30 @@ mod tests {
             a,
             Action::Move {
                 dir: Direction::North
+            }
+        );
+    }
+
+    #[test]
+    fn deserialize_gather() {
+        let a: Action =
+            serde_json::from_str(r#"{"kind":"gather","data":{"target":{"x":3,"y":4}}}"#).unwrap();
+        assert_eq!(
+            a,
+            Action::Gather {
+                target: TileCoord::new(3, 4)
+            }
+        );
+    }
+
+    #[test]
+    fn deserialize_craft() {
+        let a: Action =
+            serde_json::from_str(r#"{"kind":"craft","data":{"recipe":"bamboo_spear"}}"#).unwrap();
+        assert_eq!(
+            a,
+            Action::Craft {
+                recipe: "bamboo_spear".into()
             }
         );
     }

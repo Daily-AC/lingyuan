@@ -1,10 +1,49 @@
 use crate::{
     db::DbWrite,
-    state::{ActionEnvelope, AppState, SpectatorAgent, SpectatorView, TickFrame},
+    state::{ActionEnvelope, AppState, SpectatorAgent, SpectatorEntity, SpectatorView, TickFrame},
 };
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
+use world::World;
+
+fn collect_spectator_entities(w: &World) -> Vec<SpectatorEntity> {
+    let mut out = Vec::with_capacity(w.entities.len() + w.buildings.len());
+    for (pos, e) in &w.entities {
+        match e {
+            world::Entity::Plant { plant } => {
+                let kind = format!("plant:{}", serde_plain(&plant.kind));
+                out.push(SpectatorEntity {
+                    pos: *pos,
+                    kind,
+                    label: None,
+                });
+            }
+            world::Entity::ItemDrop { stack, .. } => {
+                out.push(SpectatorEntity {
+                    pos: *pos,
+                    kind: format!("drop:{}", serde_plain(&stack.item)),
+                    label: Some(format!("×{}", stack.n)),
+                });
+            }
+        }
+    }
+    for (pos, b) in &w.buildings {
+        out.push(SpectatorEntity {
+            pos: *pos,
+            kind: format!("building:{}", serde_plain(&b.kind)),
+            label: None,
+        });
+    }
+    out
+}
+
+fn serde_plain<T: serde::Serialize>(v: &T) -> String {
+    serde_json::to_value(v)
+        .ok()
+        .and_then(|j| j.as_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| "unknown".into())
+}
 
 pub async fn run(state: AppState, mut rx: mpsc::Receiver<ActionEnvelope>) {
     let mut ticker = tokio::time::interval(Duration::from_millis(state.config.tick_ms));
@@ -39,8 +78,15 @@ pub async fn run(state: AppState, mut rx: mpsc::Receiver<ActionEnvelope>) {
                     name: a.name.clone(),
                     pos: a.pos,
                     hp: a.status.hp,
+                    hunger: a.status.hunger,
+                    state: match a.state {
+                        world::AgentState::Alive => "alive".into(),
+                        world::AgentState::Dying { .. } => "dying".into(),
+                        world::AgentState::Meditating { .. } => "meditating".into(),
+                    },
                 })
                 .collect(),
+            entities: collect_spectator_entities(&w),
             events: events.clone(),
         };
 

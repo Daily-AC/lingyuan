@@ -19,7 +19,8 @@ enum SpectatorMsg<'a> {
         grid_width: u16,
         grid_height: u16,
         tiles: Vec<TileMsg>,
-        agents: Vec<&'a crate::state::SpectatorAgent>,
+        agents: Vec<crate::state::SpectatorAgent>,
+        entities: Vec<crate::state::SpectatorEntity>,
     },
     Tick {
         view: &'a crate::state::SpectatorView,
@@ -31,6 +32,13 @@ struct TileMsg {
     pos: world::TileCoord,
     kind: world::TileKind,
     biome: world::Biome,
+}
+
+fn serde_kind<T: serde::Serialize>(v: &T) -> String {
+    serde_json::to_value(v)
+        .ok()
+        .and_then(|j| j.as_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| "unknown".into())
 }
 
 pub async fn spectator_ws(ws: WebSocketUpgrade, State(s): State<AppState>) -> Response {
@@ -60,15 +68,44 @@ async fn handle(socket: WebSocket, s: AppState) {
                 name: a.name.clone(),
                 pos: a.pos,
                 hp: a.status.hp,
+                hunger: a.status.hunger,
+                state: match a.state {
+                    world::AgentState::Alive => "alive".into(),
+                    world::AgentState::Dying { .. } => "dying".into(),
+                    world::AgentState::Meditating { .. } => "meditating".into(),
+                },
             })
             .collect();
+        let mut entities = Vec::with_capacity(w.entities.len() + w.buildings.len());
+        for (pos, e) in &w.entities {
+            match e {
+                world::Entity::Plant { plant } => entities.push(crate::state::SpectatorEntity {
+                    pos: *pos,
+                    kind: format!("plant:{}", serde_kind(&plant.kind)),
+                    label: None,
+                }),
+                world::Entity::ItemDrop { stack, .. } => entities.push(crate::state::SpectatorEntity {
+                    pos: *pos,
+                    kind: format!("drop:{}", serde_kind(&stack.item)),
+                    label: Some(format!("×{}", stack.n)),
+                }),
+            }
+        }
+        for (pos, b) in &w.buildings {
+            entities.push(crate::state::SpectatorEntity {
+                pos: *pos,
+                kind: format!("building:{}", serde_kind(&b.kind)),
+                label: None,
+            });
+        }
         let msg = SpectatorMsg::Snapshot {
             tick: w.clock.tick,
             clock: &w.clock,
             grid_width: w.grid.width,
             grid_height: w.grid.height,
             tiles,
-            agents: agents.iter().collect(),
+            agents,
+            entities,
         };
         let json = serde_json::to_string(&msg).unwrap();
         if tx.send(Message::Text(json)).await.is_err() {

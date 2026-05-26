@@ -6,12 +6,7 @@ export interface TileCoord {
   y: number;
 }
 
-export type Biome =
-  | 'qingzhu'
-  | 'cangsong'
-  | 'yueze'
-  | 'zhuyang'
-  | 'heishi';
+export type Biome = 'qingzhu' | 'cangsong' | 'yueze' | 'zhuyang' | 'heishi';
 
 export type TileKind =
   | 'grass'
@@ -38,49 +33,50 @@ export interface WorldClock {
   tick: number;
 }
 
+export type AgentRuntimeState = 'alive' | 'dying' | 'meditating';
+
 export interface SpectatorAgent {
   id: string;
   name: string;
   pos: TileCoord;
   hp: number;
+  hunger: number;
+  state: AgentRuntimeState;
+}
+
+export interface SpectatorEntity {
+  pos: TileCoord;
+  /// Format: "plant:mushroom" | "drop:stone" | "building:campfire"
+  kind: string;
+  label: string | null;
 }
 
 export type Season = 'chun' | 'xia' | 'qiu' | 'dong';
 
 export type TickEvent =
-  | {
-      kind: 'agent_joined';
-      data: { agent: string; name: string; at: TileCoord };
-    }
-  | {
-      kind: 'agent_left';
-      data: { agent: string; name: string };
-    }
-  | {
-      kind: 'agent_moved';
-      data: { agent: string; from: TileCoord; to: TileCoord };
-    }
-  | {
-      kind: 'agent_move_failed';
-      data: { agent: string; reason: string };
-    }
-  | {
-      kind: 'season_changed';
-      data: { to: Season };
-    }
-  | {
-      kind: 'day_started';
-      data: { day: number };
-    }
-  | {
-      kind: 'night_started';
-      data: { day: number };
-    };
+  | { kind: 'agent_joined'; data: { agent: string; name: string; at: TileCoord } }
+  | { kind: 'agent_left'; data: { agent: string; name: string } }
+  | { kind: 'agent_moved'; data: { agent: string; from: TileCoord; to: TileCoord } }
+  | { kind: 'agent_move_failed'; data: { agent: string; reason: string } }
+  | { kind: 'agent_gathered'; data: { agent: string; item: string; n: number; from: TileCoord } }
+  | { kind: 'agent_gather_failed'; data: { agent: string; reason: string } }
+  | { kind: 'agent_ate'; data: { agent: string; item: string; hp_gain: number; hunger_gain: number } }
+  | { kind: 'agent_crafted'; data: { agent: string; recipe: string } }
+  | { kind: 'agent_craft_failed'; data: { agent: string; reason: string } }
+  | { kind: 'agent_placed'; data: { agent: string; building: string; at: TileCoord } }
+  | { kind: 'agent_picked_up'; data: { agent: string; item: string; n: number } }
+  | { kind: 'agent_dropped'; data: { agent: string; item: string; n: number } }
+  | { kind: 'agent_died'; data: { agent: string; at: TileCoord; cause: string } }
+  | { kind: 'agent_respawned'; data: { agent: string; at: TileCoord } }
+  | { kind: 'season_changed'; data: { to: Season } }
+  | { kind: 'day_started'; data: { day: number } }
+  | { kind: 'night_started'; data: { day: number } };
 
 export interface SpectatorView {
   tick: number;
   clock: WorldClock;
   agents: SpectatorAgent[];
+  entities: SpectatorEntity[];
   events: TickEvent[];
 }
 
@@ -92,6 +88,7 @@ export interface SnapshotMsg {
   grid_height: number;
   tiles: TileMsg[];
   agents: SpectatorAgent[];
+  entities: SpectatorEntity[];
 }
 
 export interface TickMsg {

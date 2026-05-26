@@ -31,6 +31,7 @@ pub struct SpectatorView {
     pub tick: u64,
     pub clock: world::WorldClock,
     pub agents: Vec<SpectatorAgent>,
+    pub entities: Vec<SpectatorEntity>,
     pub events: Vec<world::TickEvent>,
 }
 
@@ -40,4 +41,14 @@ pub struct SpectatorAgent {
     pub name: String,
     pub pos: world::TileCoord,
     pub hp: i16,
+    pub hunger: i16,
+    pub state: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SpectatorEntity {
+    pub pos: world::TileCoord,
+    /// 格式: "plant:mushroom" / "drop:stone" / "building:campfire"
+    pub kind: String,
+    pub label: Option<String>,
 }

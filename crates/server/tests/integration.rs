@@ -92,6 +92,59 @@ async fn server_starts_and_advances_clock() {
 }
 
 #[tokio::test]
+async fn hunger_decays_over_long_run() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("test.db");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_server"))
+        .kill_on_drop(true)
+        .env("LINGYUAN_BIND", "127.0.0.1:17779")
+        .env("LINGYUAN_DB", db_path.to_str().unwrap())
+        .env("LINGYUAN_TICK_MS", "30")
+        .stderr(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let base = "http://127.0.0.1:17779";
+    assert!(wait_for_clock(base, Duration::from_secs(10)).await.is_some());
+
+    let cli = reqwest::Client::builder().no_proxy().build().unwrap();
+    let join: serde_json::Value = cli
+        .post(format!("{}/api/v1/join", base))
+        .json(&serde_json::json!({"name":"eve"}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let id = join["agent_id"].as_str().unwrap().to_string();
+    let tok = join["token"].as_str().unwrap().to_string();
+
+    // 跑 ~6s @30ms = 200 tick；hunger 应当从 100 降到 ~50
+    sleep(Duration::from_millis(6000)).await;
+    let obs: serde_json::Value = cli
+        .get(format!("{}/api/v1/observe", base))
+        .header("Authorization", format!("Bearer {}", tok))
+        .header("X-Agent-Id", &id)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let hunger = obs["self"]["status"]["hunger"].as_i64().unwrap();
+    assert!(
+        (30..=80).contains(&hunger),
+        "hunger after 6s = {}",
+        hunger
+    );
+    let inv = obs["self"]["inventory"].as_array().unwrap();
+    assert!(inv.is_empty(), "inventory should start empty");
+
+    child.kill().await.ok();
+}
+
+#[tokio::test]
 async fn agent_can_join_and_observe_and_move() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("test.db");

@@ -1,16 +1,23 @@
 use crate::{
     action::Action,
     agent::{Agent, AgentId, AgentState},
+    building::{Building, BuildingKind},
     clock::{Season, WorldClock, TICKS_PER_DAY},
     coord::{Direction, TileCoord},
+    entity::Entity,
     event::TickEvent,
     gen,
     grid::Grid,
-    observation::{ClockView, Observation, SelfView, VisibleEntity, VisibleTile, VisionView, VISION_RADIUS},
+    item::{ItemKind, ItemStack},
+    observation::{
+        ClockView, Observation, SelfView, VisibleEntity, VisibleTile, VisionView, VISION_RADIUS,
+    },
+    plant::Plant,
+    recipe::{self, CraftStation, RecipeOutput},
     tile::Tile,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WorldError {
@@ -27,7 +34,9 @@ pub struct World {
     pub seed: u64,
     pub clock: WorldClock,
     pub grid: Grid<Tile>,
-    pub agents: HashMap<AgentId, Agent>,
+    pub agents: BTreeMap<AgentId, Agent>,
+    pub entities: BTreeMap<TileCoord, Entity>,
+    pub buildings: BTreeMap<TileCoord, Building>,
     pub max_agents: usize,
     #[serde(skip)]
     pending_events: Vec<TickEvent>,
@@ -35,11 +44,15 @@ pub struct World {
 
 impl World {
     pub fn bootstrap(seed: u64) -> Self {
+        let grid = gen::generate(seed);
+        let entities = gen::populate(&grid, seed);
         Self {
             seed,
             clock: WorldClock::new(),
-            grid: gen::generate(seed),
-            agents: HashMap::new(),
+            grid,
+            agents: BTreeMap::new(),
+            entities,
+            buildings: BTreeMap::new(),
             max_agents: 64,
             pending_events: Vec::new(),
         }
@@ -79,7 +92,6 @@ impl World {
         Ok(())
     }
 
-    /// 推进一个 tick。actions 是本 tick 收到的 agent 动作。
     pub fn step(&mut self, actions: Vec<(AgentId, Action)>) -> Vec<TickEvent> {
         let mut acts = actions;
         acts.sort_by(|a, b| a.0 .0.cmp(&b.0 .0));
@@ -88,7 +100,34 @@ impl World {
             self.resolve(&aid, action);
         }
 
-        // 时钟与季节/昼夜事件
+        // 自然系统
+        crate::systems::natural::step_status(self.clock.tick, &mut self.agents);
+
+        // 死亡 + 重生
+        let mut died = crate::systems::death::handle_deaths(
+            self.clock.tick,
+            self.seed,
+            &self.grid,
+            &mut self.agents,
+            &mut self.entities,
+        );
+        let mut respawned = crate::systems::death::handle_respawns(
+            self.clock.tick,
+            self.seed,
+            &self.grid,
+            &mut self.agents,
+        );
+        self.pending_events.append(&mut died);
+        self.pending_events.append(&mut respawned);
+
+        // 过期 item drop
+        let expire_tick = self.clock.tick;
+        self.entities.retain(|_, e| match e {
+            Entity::ItemDrop { expires_at, .. } => *expires_at > expire_tick,
+            _ => true,
+        });
+
+        // 时钟
         let was_phase_day = self.clock.tick_in_day() < 30;
         let was_season = self.clock.season();
         self.clock.advance();
@@ -119,6 +158,12 @@ impl World {
             Action::Move { dir } => self.resolve_move(aid.clone(), dir),
             Action::Wait => {}
             Action::Observe => {}
+            Action::Gather { target } => self.resolve_gather(aid.clone(), target),
+            Action::Eat { item } => self.resolve_eat(aid.clone(), item),
+            Action::Craft { recipe } => self.resolve_craft(aid.clone(), recipe),
+            Action::Place { item, pos } => self.resolve_place(aid.clone(), item, pos),
+            Action::PickUp { pos } => self.resolve_pickup(aid.clone(), pos),
+            Action::Drop { item, n } => self.resolve_drop(aid.clone(), item, n),
         }
     }
 
@@ -130,7 +175,8 @@ impl World {
         let to = from.step(dir);
 
         let walkable = self.grid.get(to).map(|t| t.is_walkable()).unwrap_or(false);
-        let occupied = self.agents.values().any(|a| a.pos == to && a.id != aid);
+        let occupied_by_agent = self.agents.values().any(|a| a.pos == to && a.id != aid);
+        let blocked_by_building = self.buildings.contains_key(&to);
 
         if !walkable {
             self.pending_events.push(TickEvent::AgentMoveFailed {
@@ -139,7 +185,7 @@ impl World {
             });
             return;
         }
-        if occupied {
+        if occupied_by_agent || blocked_by_building {
             self.pending_events.push(TickEvent::AgentMoveFailed {
                 agent: aid,
                 reason: "occupied".into(),
@@ -153,6 +199,291 @@ impl World {
             agent: aid,
             from,
             to,
+        });
+    }
+
+    fn resolve_gather(&mut self, aid: AgentId, target: TileCoord) {
+        let Some(agent) = self.agents.get(&aid) else {
+            return;
+        };
+        if agent.pos.manhattan(target) > 1 {
+            self.pending_events.push(TickEvent::AgentGatherFailed {
+                agent: aid,
+                reason: "out of range".into(),
+            });
+            return;
+        }
+        let tick = self.clock.tick;
+        let take = match self.entities.get(&target) {
+            Some(Entity::Plant { plant }) if plant.is_available(tick) => Some((
+                plant.kind.yield_item(),
+                plant.kind.yield_count(),
+                plant.kind.regrow_after(),
+            )),
+            _ => None,
+        };
+        let Some((item, n, regrow)) = take else {
+            self.pending_events.push(TickEvent::AgentGatherFailed {
+                agent: aid,
+                reason: "no harvestable".into(),
+            });
+            return;
+        };
+        let added = self.agents.get_mut(&aid).unwrap().inventory.add(item, n);
+        if added == 0 {
+            self.pending_events.push(TickEvent::AgentGatherFailed {
+                agent: aid,
+                reason: "inventory full".into(),
+            });
+            return;
+        }
+        if let Some(Entity::Plant { plant }) = self.entities.get_mut(&target) {
+            if let Some(regrow_in) = regrow {
+                plant.harvested_until = Some(tick + regrow_in);
+            } else {
+                self.entities.remove(&target);
+            }
+        }
+        let a = self.agents.get_mut(&aid).unwrap();
+        a.status.stamina = (a.status.stamina - 3).max(0);
+        a.last_action_tick = tick;
+        self.pending_events.push(TickEvent::AgentGathered {
+            agent: aid,
+            item,
+            n: added,
+            from: target,
+        });
+    }
+
+    fn resolve_eat(&mut self, aid: AgentId, item: ItemKind) {
+        let Some(a) = self.agents.get_mut(&aid) else {
+            return;
+        };
+        if !item.is_food() {
+            self.pending_events.push(TickEvent::AgentGatherFailed {
+                agent: aid,
+                reason: format!("{:?} not food", item),
+            });
+            return;
+        }
+        if !a.inventory.remove(item, 1) {
+            self.pending_events.push(TickEvent::AgentGatherFailed {
+                agent: aid,
+                reason: "no such item".into(),
+            });
+            return;
+        }
+        let (hunger, hp) = item.nutrition();
+        a.status.hunger = (a.status.hunger + hunger).min(100);
+        a.status.hp = (a.status.hp + hp).min(100);
+        a.last_action_tick = self.clock.tick;
+        self.pending_events.push(TickEvent::AgentAte {
+            agent: aid,
+            item,
+            hp_gain: hp,
+            hunger_gain: hunger,
+        });
+    }
+
+    fn resolve_craft(&mut self, aid: AgentId, recipe_id: String) {
+        let Some(rec) = recipe::find(&recipe_id) else {
+            self.pending_events.push(TickEvent::AgentCraftFailed {
+                agent: aid,
+                reason: "unknown recipe".into(),
+            });
+            return;
+        };
+        let pos = match self.agents.get(&aid) {
+            Some(a) => a.pos,
+            None => return,
+        };
+        let station_ok = match rec.station {
+            CraftStation::Hand => true,
+            CraftStation::Campfire => self.has_nearby_building(pos, BuildingKind::Campfire),
+            CraftStation::CookingStove => self.has_nearby_building(pos, BuildingKind::CookingStove),
+        };
+        if !station_ok {
+            self.pending_events.push(TickEvent::AgentCraftFailed {
+                agent: aid,
+                reason: "station not nearby".into(),
+            });
+            return;
+        }
+        let a = self.agents.get(&aid).unwrap();
+        for (item, n) in rec.inputs {
+            if a.inventory.count(*item) < *n {
+                self.pending_events.push(TickEvent::AgentCraftFailed {
+                    agent: aid.clone(),
+                    reason: format!("missing {:?}", item),
+                });
+                return;
+            }
+        }
+        let a = self.agents.get_mut(&aid).unwrap();
+        for (item, n) in rec.inputs {
+            a.inventory.remove(*item, *n);
+        }
+        match rec.output {
+            RecipeOutput::Item(item, n) => {
+                a.inventory.add(item, n);
+            }
+        }
+        a.status.stamina = (a.status.stamina - 5).max(0);
+        a.last_action_tick = self.clock.tick;
+        self.pending_events.push(TickEvent::AgentCrafted {
+            agent: aid,
+            recipe: recipe_id,
+        });
+    }
+
+    fn has_nearby_building(&self, pos: TileCoord, kind: BuildingKind) -> bool {
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                let c = TileCoord::new(pos.x + dx, pos.y + dy);
+                if let Some(b) = self.buildings.get(&c) {
+                    if b.kind == kind {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn resolve_place(&mut self, aid: AgentId, item: ItemKind, pos: TileCoord) {
+        let Some(kind) = recipe::kit_to_building(item) else {
+            self.pending_events.push(TickEvent::AgentCraftFailed {
+                agent: aid,
+                reason: "not placeable".into(),
+            });
+            return;
+        };
+        let Some(agent) = self.agents.get(&aid) else {
+            return;
+        };
+        if agent.pos.manhattan(pos) > 1 {
+            self.pending_events.push(TickEvent::AgentCraftFailed {
+                agent: aid,
+                reason: "out of range".into(),
+            });
+            return;
+        }
+        if self.buildings.contains_key(&pos)
+            || self.agents.values().any(|a| a.pos == pos)
+            || self.entities.contains_key(&pos)
+        {
+            self.pending_events.push(TickEvent::AgentCraftFailed {
+                agent: aid,
+                reason: "tile occupied".into(),
+            });
+            return;
+        }
+        if !self.grid.get(pos).map(|t| t.is_walkable()).unwrap_or(false) {
+            self.pending_events.push(TickEvent::AgentCraftFailed {
+                agent: aid,
+                reason: "tile not walkable".into(),
+            });
+            return;
+        }
+        if !self.agents.get_mut(&aid).unwrap().inventory.remove(item, 1) {
+            self.pending_events.push(TickEvent::AgentCraftFailed {
+                agent: aid,
+                reason: "no kit in inv".into(),
+            });
+            return;
+        }
+        let placed_by = aid.clone();
+        self.buildings.insert(
+            pos,
+            Building {
+                kind,
+                placed_by,
+                placed_at_tick: self.clock.tick,
+            },
+        );
+        self.pending_events.push(TickEvent::AgentPlaced {
+            agent: aid,
+            building: format!("{:?}", kind),
+            at: pos,
+        });
+    }
+
+    fn resolve_pickup(&mut self, aid: AgentId, pos: TileCoord) {
+        let Some(agent) = self.agents.get(&aid) else {
+            return;
+        };
+        if agent.pos.manhattan(pos) > 1 {
+            return;
+        }
+        let stack = match self.entities.get(&pos) {
+            Some(Entity::ItemDrop { stack, .. }) => Some(*stack),
+            _ => None,
+        };
+        let Some(stack) = stack else {
+            return;
+        };
+        let added = self
+            .agents
+            .get_mut(&aid)
+            .unwrap()
+            .inventory
+            .add(stack.item, stack.n);
+        if added >= stack.n {
+            self.entities.remove(&pos);
+            self.pending_events.push(TickEvent::AgentPickedUp {
+                agent: aid,
+                item: stack.item,
+                n: stack.n,
+            });
+        } else if added > 0 {
+            if let Some(Entity::ItemDrop { stack: s, .. }) = self.entities.get_mut(&pos) {
+                s.n -= added;
+            }
+            self.pending_events.push(TickEvent::AgentPickedUp {
+                agent: aid,
+                item: stack.item,
+                n: added,
+            });
+        }
+    }
+
+    fn resolve_drop(&mut self, aid: AgentId, item: ItemKind, n: u16) {
+        let Some(a) = self.agents.get_mut(&aid) else {
+            return;
+        };
+        if !a.inventory.remove(item, n) {
+            return;
+        }
+        let pos = a.pos;
+        let tick = self.clock.tick;
+        if let Some(Entity::ItemDrop { stack, expires_at }) = self.entities.get_mut(&pos) {
+            if stack.item == item {
+                stack.n += n;
+                *expires_at = tick + crate::systems::death::ITEM_DROP_TTL;
+                self.pending_events.push(TickEvent::AgentDropped {
+                    agent: aid,
+                    item,
+                    n,
+                });
+                return;
+            }
+        }
+        let drop_pos = if self.entities.contains_key(&pos) {
+            TileCoord::new(pos.x + 1, pos.y)
+        } else {
+            pos
+        };
+        self.entities.insert(
+            drop_pos,
+            Entity::ItemDrop {
+                stack: ItemStack { item, n },
+                expires_at: tick + crate::systems::death::ITEM_DROP_TTL,
+            },
+        );
+        self.pending_events.push(TickEvent::AgentDropped {
+            agent: aid,
+            item,
+            n,
         });
     }
 
@@ -178,17 +509,45 @@ impl World {
             }
         }
 
-        let mut entities = Vec::new();
+        let mut entities_view = Vec::new();
         for (id, a) in &self.agents {
             if id == viewer {
                 continue;
             }
             if a.pos.manhattan(center) <= VISION_RADIUS {
-                entities.push(VisibleEntity::Agent {
+                entities_view.push(VisibleEntity::Agent {
                     id: id.clone(),
                     name: a.name.clone(),
                     pos: a.pos,
                     hp: a.status.hp,
+                });
+            }
+        }
+        for (pos, e) in &self.entities {
+            if pos.manhattan(center) <= VISION_RADIUS {
+                match e {
+                    Entity::Plant { plant } => entities_view.push(VisibleEntity::Plant {
+                        pos: *pos,
+                        plant_kind: plant.kind,
+                        available: plant.is_available(self.clock.tick),
+                    }),
+                    Entity::ItemDrop { stack, expires_at } => {
+                        entities_view.push(VisibleEntity::ItemDrop {
+                            pos: *pos,
+                            item: stack.item,
+                            n: stack.n,
+                            expires_in: expires_at.saturating_sub(self.clock.tick),
+                        });
+                    }
+                }
+            }
+        }
+        for (pos, b) in &self.buildings {
+            if pos.manhattan(center) <= VISION_RADIUS {
+                entities_view.push(VisibleEntity::Building {
+                    pos: *pos,
+                    building_kind: b.kind,
+                    owner: b.placed_by.clone(),
                 });
             }
         }
@@ -207,12 +566,13 @@ impl World {
                 pos: agent.pos,
                 status: agent.status,
                 state: agent.state,
+                inventory: agent.inventory.slots.clone(),
             },
             vision: VisionView {
                 radius: VISION_RADIUS,
                 tiles,
             },
-            visible_entities: entities,
+            visible_entities: entities_view,
             recent_events: Vec::new(),
         })
     }
@@ -231,6 +591,7 @@ fn rand_for_id(seed: u64, tick: u64, n: u64) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::PlantKind;
 
     #[test]
     fn join_assigns_unique_id_and_walkable_pos() {
@@ -257,7 +618,9 @@ mod tests {
         let orig = w.agents[&id].pos;
         for dir in Direction::ALL {
             let target = orig.step(dir);
-            if w.grid.get(target).map(|t| t.is_walkable()).unwrap_or(false) {
+            if w.grid.get(target).map(|t| t.is_walkable()).unwrap_or(false)
+                && !w.entities.contains_key(&target)
+            {
                 let events = w.step(vec![(id.clone(), Action::Move { dir })]);
                 assert!(events
                     .iter()
@@ -283,7 +646,6 @@ mod tests {
         a.step(vec![]);
         b.step(vec![]);
         assert_eq!(a.clock, b.clock);
-        // grid 已确定，agents 都为空，对比序列化字节
         assert_eq!(
             bincode::serialize(&a).unwrap(),
             bincode::serialize(&b).unwrap()
@@ -303,8 +665,151 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_populates_entities() {
+        let w = World::bootstrap(42);
+        assert!(w.entities.len() > 50, "entities = {}", w.entities.len());
+    }
+
+    #[test]
+    fn gather_adds_to_inventory() {
+        let mut w = World::bootstrap(42);
+        let id = w.join("alice".into()).unwrap();
+        let pos = w.agents[&id].pos;
+        let target = TileCoord::new(pos.x + 1, pos.y);
+        w.entities.insert(
+            target,
+            Entity::Plant {
+                plant: Plant::fresh(PlantKind::Mushroom),
+            },
+        );
+        let events = w.step(vec![(id.clone(), Action::Gather { target })]);
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, TickEvent::AgentGathered { .. })));
+        assert_eq!(w.agents[&id].inventory.count(ItemKind::Mushroom), 1);
+    }
+
+    #[test]
+    fn eat_restores_hunger() {
+        let mut w = World::bootstrap(42);
+        let id = w.join("alice".into()).unwrap();
+        w.agents
+            .get_mut(&id)
+            .unwrap()
+            .inventory
+            .add(ItemKind::Mushroom, 3);
+        w.agents.get_mut(&id).unwrap().status.hunger = 50;
+        let _ = w.step(vec![(
+            id.clone(),
+            Action::Eat {
+                item: ItemKind::Mushroom,
+            },
+        )]);
+        let s = w.agents[&id].status;
+        assert_eq!(s.hunger, 58);
+        assert_eq!(w.agents[&id].inventory.count(ItemKind::Mushroom), 2);
+    }
+
+    #[test]
+    fn craft_bamboo_spear_consumes_inputs() {
+        let mut w = World::bootstrap(42);
+        let id = w.join("alice".into()).unwrap();
+        {
+            let inv = &mut w.agents.get_mut(&id).unwrap().inventory;
+            inv.add(ItemKind::Flint, 1);
+            inv.add(ItemKind::Bamboo, 1);
+        }
+        let _ = w.step(vec![(
+            id.clone(),
+            Action::Craft {
+                recipe: "bamboo_spear".into(),
+            },
+        )]);
+        let inv = &w.agents[&id].inventory;
+        assert_eq!(inv.count(ItemKind::BambooSpear), 1);
+        assert_eq!(inv.count(ItemKind::Bamboo), 0);
+    }
+
+    #[test]
+    fn place_campfire_creates_building() {
+        let mut w = World::bootstrap(42);
+        let id = w.join("alice".into()).unwrap();
+        w.agents
+            .get_mut(&id)
+            .unwrap()
+            .inventory
+            .add(ItemKind::CampfireKit, 1);
+        let pos = w.agents[&id].pos;
+        let target = [
+            (pos.x + 1, pos.y),
+            (pos.x - 1, pos.y),
+            (pos.x, pos.y + 1),
+            (pos.x, pos.y - 1),
+        ]
+        .into_iter()
+        .map(|(x, y)| TileCoord::new(x, y))
+        .find(|c| {
+            w.grid.get(*c).map(|t| t.is_walkable()).unwrap_or(false)
+                && !w.entities.contains_key(c)
+                && !w.buildings.contains_key(c)
+        })
+        .expect("no walkable neighbor");
+        let _ = w.step(vec![(
+            id.clone(),
+            Action::Place {
+                item: ItemKind::CampfireKit,
+                pos: target,
+            },
+        )]);
+        assert!(matches!(
+            w.buildings.get(&target).map(|b| b.kind),
+            Some(BuildingKind::Campfire)
+        ));
+    }
+
+    #[test]
+    fn hunger_decays_over_time() {
+        let mut w = World::bootstrap(42);
+        let id = w.join("alice".into()).unwrap();
+        let before = w.agents[&id].status.hunger;
+        for _ in 0..40 {
+            w.step(vec![]);
+        }
+        assert!(w.agents[&id].status.hunger < before);
+    }
+
+    #[test]
+    fn agent_dies_when_hp_reaches_zero() {
+        let mut w = World::bootstrap(42);
+        let id = w.join("alice".into()).unwrap();
+        w.agents.get_mut(&id).unwrap().status.hp = 1;
+        w.agents.get_mut(&id).unwrap().status.hunger = 0;
+        for _ in 0..10 {
+            w.step(vec![]);
+        }
+        assert!(
+            matches!(w.agents[&id].state, AgentState::Dying { .. }),
+            "state = {:?}",
+            w.agents[&id].state
+        );
+    }
+
+    #[test]
+    fn dying_agent_respawns_after_delay() {
+        let mut w = World::bootstrap(42);
+        let id = w.join("alice".into()).unwrap();
+        w.agents.get_mut(&id).unwrap().status.hp = 0;
+        w.agents.get_mut(&id).unwrap().status.hunger = 0;
+        w.step(vec![]);
+        for _ in 0..crate::systems::death::RESPAWN_DELAY + 2 {
+            w.step(vec![]);
+        }
+        assert!(matches!(w.agents[&id].state, AgentState::Alive));
+        assert_eq!(w.agents[&id].status.hp, 100);
+    }
+
+    #[test]
     fn season_constant_imported() {
-        // 确保 use 没被优化掉，对编译失败给个明确信号
         let _: Season = Season::Chun;
     }
 }

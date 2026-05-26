@@ -1,12 +1,14 @@
 import { Application, Container } from 'pixi.js';
-import type { SpectatorAgent, TileMsg } from '../types';
+import type { SpectatorAgent, SpectatorEntity, TileMsg } from '../types';
 import { TILE_SIZE, TileLayer } from './tile-layer';
 import { AgentLayer } from './agent-layer';
+import { EntityLayer } from './entity-layer';
 
 export class WorldStage {
   private readonly app: Application;
   private readonly root: Container;
   private readonly tileLayer: TileLayer;
+  private readonly entityLayer: EntityLayer;
   private readonly agentLayer: AgentLayer;
   private host: HTMLElement | null;
   private gridWidth: number;
@@ -18,6 +20,7 @@ export class WorldStage {
     this.root = new Container();
     this.root.label = 'world-root';
     this.tileLayer = new TileLayer();
+    this.entityLayer = new EntityLayer();
     this.agentLayer = new AgentLayer();
     this.host = null;
     this.gridWidth = 0;
@@ -37,6 +40,7 @@ export class WorldStage {
     el.appendChild(this.app.canvas);
 
     this.root.addChild(this.tileLayer.container);
+    this.root.addChild(this.entityLayer.container);
     this.root.addChild(this.agentLayer.container);
     this.app.stage.addChild(this.root);
 
@@ -53,6 +57,10 @@ export class WorldStage {
 
   setAgents(agents: SpectatorAgent[]): void {
     this.agentLayer.setAgents(agents);
+  }
+
+  setEntities(entities: SpectatorEntity[]): void {
+    this.entityLayer.render(entities, TILE_SIZE);
   }
 
   private fit(): void {
