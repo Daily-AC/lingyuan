@@ -11,7 +11,8 @@ use crate::{
     grid::Grid,
     item::{ItemKind, ItemStack},
     observation::{
-        ClockView, Observation, SelfView, VisibleEntity, VisibleTile, VisionView, VISION_RADIUS,
+        ClockView, MailView, Observation, SelfView, SignView, VisibleEntity, VisibleTile,
+        VisionView, VISION_RADIUS,
     },
     recipe::{self, CraftStation, RecipeOutput},
     tile::Tile,
@@ -39,10 +40,31 @@ pub struct World {
     pub buildings: BTreeMap<TileCoord, Building>,
     pub creatures: BTreeMap<CreatureId, Creature>,
     pub next_creature_id: CreatureId,
+    pub signs: BTreeMap<TileCoord, SignText>,
+    pub mail: BTreeMap<AgentId, Vec<MailEntry>>,
     pub max_agents: usize,
     #[serde(skip)]
     pending_events: Vec<TickEvent>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignText {
+    pub text: String,
+    pub author_name: Option<String>,
+    pub written_at_tick: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MailEntry {
+    pub from: String,
+    pub text: String,
+    pub received_at_tick: u64,
+}
+
+pub const SIGN_TEXT_MAX: usize = 200;
+pub const MAIL_TEXT_MAX: usize = 500;
+pub const MAIL_INBOX_MAX: usize = 32;
+pub const SIGNS_PER_AGENT_LIMIT: u32 = 50;
 
 impl World {
     pub fn bootstrap(seed: u64) -> Self {
@@ -57,6 +79,8 @@ impl World {
             buildings: BTreeMap::new(),
             creatures: BTreeMap::new(),
             next_creature_id: 0,
+            signs: BTreeMap::new(),
+            mail: BTreeMap::new(),
             max_agents: 64,
             pending_events: Vec::new(),
         }
@@ -191,7 +215,91 @@ impl World {
             Action::PickUp { pos } => self.resolve_pickup(aid.clone(), pos),
             Action::Drop { item, n } => self.resolve_drop(aid.clone(), item, n),
             Action::Attack { target } => self.resolve_attack(aid.clone(), target),
+            Action::WriteSign { pos, text } => self.resolve_write_sign(aid.clone(), pos, text),
+            Action::SendMail { to, text } => self.resolve_send_mail(aid.clone(), to, text),
         }
+    }
+
+    fn resolve_write_sign(&mut self, aid: AgentId, pos: TileCoord, text: String) {
+        if text.is_empty() || text.len() > SIGN_TEXT_MAX {
+            self.pending_events.push(TickEvent::AgentCraftFailed {
+                agent: aid,
+                reason: format!("sign text must be 1..={} chars", SIGN_TEXT_MAX),
+            });
+            return;
+        }
+        let Some(agent) = self.agents.get(&aid) else {
+            return;
+        };
+        if agent.pos.manhattan(pos) > 1 {
+            self.pending_events.push(TickEvent::AgentCraftFailed {
+                agent: aid,
+                reason: "sign out of range".into(),
+            });
+            return;
+        }
+        if !self.grid.get(pos).map(|t| t.is_walkable()).unwrap_or(false) {
+            self.pending_events.push(TickEvent::AgentCraftFailed {
+                agent: aid,
+                reason: "tile not walkable".into(),
+            });
+            return;
+        }
+        let author_name = agent.name.clone();
+        let excerpt: String = text.chars().take(40).collect();
+        self.signs.insert(
+            pos,
+            SignText {
+                text,
+                author_name: Some(author_name),
+                written_at_tick: self.clock.tick,
+            },
+        );
+        self.pending_events.push(TickEvent::AgentWroteSign {
+            agent: aid,
+            pos,
+            text_excerpt: excerpt,
+        });
+    }
+
+    fn resolve_send_mail(&mut self, from: AgentId, to_name: String, text: String) {
+        if text.is_empty() || text.len() > MAIL_TEXT_MAX {
+            self.pending_events.push(TickEvent::AgentCraftFailed {
+                agent: from,
+                reason: format!("mail text must be 1..={} chars", MAIL_TEXT_MAX),
+            });
+            return;
+        }
+        let target = self
+            .agents
+            .iter()
+            .find(|(_, a)| a.name == to_name)
+            .map(|(id, _)| id.clone());
+        let Some(target_id) = target else {
+            self.pending_events.push(TickEvent::AgentCraftFailed {
+                agent: from,
+                reason: format!("agent named '{}' not found", to_name),
+            });
+            return;
+        };
+        let from_name = self.agents.get(&from).map(|a| a.name.clone()).unwrap_or_default();
+        let entry = MailEntry {
+            from: from_name,
+            text: text.clone(),
+            received_at_tick: self.clock.tick,
+        };
+        let inbox = self.mail.entry(target_id).or_default();
+        inbox.push(entry);
+        if inbox.len() > MAIL_INBOX_MAX {
+            let drop_n = inbox.len() - MAIL_INBOX_MAX;
+            inbox.drain(0..drop_n);
+        }
+        let excerpt: String = text.chars().take(60).collect();
+        self.pending_events.push(TickEvent::AgentSentMail {
+            from,
+            to: to_name,
+            text_excerpt: excerpt,
+        });
     }
 
     fn resolve_attack(&mut self, aid: AgentId, target: AttackTarget) {
@@ -686,6 +794,31 @@ impl World {
                 tiles,
             },
             visible_entities: entities_view,
+            nearby_signs: self
+                .signs
+                .iter()
+                .filter(|(p, _)| p.manhattan(center) <= VISION_RADIUS)
+                .map(|(p, s)| SignView {
+                    pos: *p,
+                    text: s.text.clone(),
+                    author: s.author_name.clone(),
+                    written_at_tick: s.written_at_tick,
+                })
+                .collect(),
+            mail: self
+                .mail
+                .get(viewer)
+                .map(|inbox| {
+                    inbox
+                        .iter()
+                        .map(|m| MailView {
+                            from: m.from.clone(),
+                            text: m.text.clone(),
+                            received_at_tick: m.received_at_tick,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             recent_events: Vec::new(),
         })
     }
@@ -957,6 +1090,47 @@ mod tests {
             },
         )]);
         assert!(w.agents[&bob].status.hp < before);
+    }
+
+    #[test]
+    fn agent_writes_sign_visible_in_observation() {
+        let mut w = World::bootstrap(42);
+        let alice = w.join("alice".into()).unwrap();
+        let bob = w.join("bob".into()).unwrap();
+        let pos = w.agents[&alice].pos;
+        let sign_pos = TileCoord::new(pos.x + 1, pos.y);
+        if !w.grid.get(sign_pos).map(|t| t.is_walkable()).unwrap_or(false) {
+            return;
+        }
+        let _ = w.step(vec![(
+            alice.clone(),
+            Action::WriteSign {
+                pos: sign_pos,
+                text: "前方有狼，绕道".into(),
+            },
+        )]);
+        // bob 站在 sign 旁边
+        w.agents.get_mut(&bob).unwrap().pos = pos;
+        let obs = w.observe(&bob).unwrap();
+        assert!(obs.nearby_signs.iter().any(|s| s.text.contains("狼")));
+    }
+
+    #[test]
+    fn agent_sends_mail_appears_in_recipient_observation() {
+        let mut w = World::bootstrap(42);
+        let alice = w.join("alice".into()).unwrap();
+        let bob = w.join("bob".into()).unwrap();
+        let _ = w.step(vec![(
+            alice.clone(),
+            Action::SendMail {
+                to: "bob".into(),
+                text: "灶台造好了，35,40 见".into(),
+            },
+        )]);
+        let obs = w.observe(&bob).unwrap();
+        assert_eq!(obs.mail.len(), 1);
+        assert_eq!(obs.mail[0].from, "alice");
+        assert!(obs.mail[0].text.contains("灶台"));
     }
 
     #[test]

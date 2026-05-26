@@ -22,6 +22,8 @@ pub enum Action {
     PickUp { pos: TileCoord },
     Drop { item: ItemKind, n: u16 },
     Attack { target: AttackTarget },
+    WriteSign { pos: TileCoord, text: String },
+    SendMail { to: String, text: String },
 }
 
 #[cfg(test)]

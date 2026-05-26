@@ -32,5 +32,34 @@ pub fn render_markdown(obs: &serde_json::Value) -> String {
     if let Some(tiles) = obs["vision"]["tiles"].as_array() {
         s.push_str(&format!("\n*({} tiles visible)*\n", tiles.len()));
     }
+
+    if let Some(signs) = obs["nearby_signs"].as_array() {
+        if !signs.is_empty() {
+            s.push_str("\n**Signs nearby:**\n");
+            for sg in signs {
+                s.push_str(&format!(
+                    "- ({},{}) \"{}\" — {}\n",
+                    sg["pos"]["x"],
+                    sg["pos"]["y"],
+                    sg["text"].as_str().unwrap_or(""),
+                    sg["author"].as_str().unwrap_or("anon")
+                ));
+            }
+        }
+    }
+
+    if let Some(mail) = obs["mail"].as_array() {
+        if !mail.is_empty() {
+            s.push_str("\n**Mail:**\n");
+            for m in mail {
+                s.push_str(&format!(
+                    "- {} → 你 (tick {}): {}\n",
+                    m["from"].as_str().unwrap_or("?"),
+                    m["received_at_tick"].as_u64().unwrap_or(0),
+                    m["text"].as_str().unwrap_or("")
+                ));
+            }
+        }
+    }
     s
 }

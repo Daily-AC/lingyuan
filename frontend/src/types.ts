@@ -68,6 +68,14 @@ export type TickEvent =
   | { kind: 'agent_dropped'; data: { agent: string; item: string; n: number } }
   | { kind: 'agent_died'; data: { agent: string; at: TileCoord; cause: string } }
   | { kind: 'agent_respawned'; data: { agent: string; at: TileCoord } }
+  | { kind: 'agent_attacked_agent'; data: { attacker: string; target: string; damage: number; weapon: string | null } }
+  | { kind: 'agent_attacked_creature'; data: { attacker: string; creature_id: number; damage: number } }
+  | { kind: 'agent_attack_failed'; data: { agent: string; reason: string } }
+  | { kind: 'creature_spawned'; data: { id: number; kind: string; at: TileCoord } }
+  | { kind: 'creature_killed'; data: { id: number; kind: string; at: TileCoord } }
+  | { kind: 'creature_attacked_agent'; data: { creature_id: number; creature_kind: string; target: string; damage: number } }
+  | { kind: 'agent_wrote_sign'; data: { agent: string; pos: TileCoord; text_excerpt: string } }
+  | { kind: 'agent_sent_mail'; data: { from: string; to: string; text_excerpt: string } }
   | { kind: 'season_changed'; data: { to: Season } }
   | { kind: 'day_started'; data: { day: number } }
   | { kind: 'night_started'; data: { day: number } };

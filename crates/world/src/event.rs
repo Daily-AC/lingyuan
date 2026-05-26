@@ -103,6 +103,16 @@ pub enum TickEvent {
         target: AgentId,
         damage: i16,
     },
+    AgentWroteSign {
+        agent: AgentId,
+        pos: TileCoord,
+        text_excerpt: String,
+    },
+    AgentSentMail {
+        from: AgentId,
+        to: String,
+        text_excerpt: String,
+    },
     SeasonChanged {
         to: Season,
     },
