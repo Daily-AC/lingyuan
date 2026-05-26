@@ -2,7 +2,7 @@ use crate::{
     action::Action,
     agent::{Agent, AgentId, AgentState},
     building::{Building, BuildingKind},
-    clock::{Season, WorldClock, TICKS_PER_DAY},
+    clock::{WorldClock, TICKS_PER_DAY},
     coord::{Direction, TileCoord},
     entity::Entity,
     event::TickEvent,
@@ -12,7 +12,6 @@ use crate::{
     observation::{
         ClockView, Observation, SelfView, VisibleEntity, VisibleTile, VisionView, VISION_RADIUS,
     },
-    plant::Plant,
     recipe::{self, CraftStation, RecipeOutput},
     tile::Tile,
 };
@@ -591,7 +590,7 @@ fn rand_for_id(seed: u64, tick: u64, n: u64) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::PlantKind;
+    use crate::{plant::Plant, PlantKind, Season};
 
     #[test]
     fn join_assigns_unique_id_and_walkable_pos() {

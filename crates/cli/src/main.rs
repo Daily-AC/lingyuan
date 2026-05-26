@@ -34,15 +34,55 @@ async fn main() -> anyhow::Result<()> {
                 _ => print!("{}", render::render_markdown(&obs)),
             }
         }
-        Cmd::Act { verb, dir } => {
+        Cmd::Act {
+            verb,
+            dir,
+            pos,
+            item,
+            recipe,
+            n,
+        } => {
             let t = token_store::load().context("not joined yet")?;
             let c = client::Client::from_token(t);
+            let parse_pos = |s: &str| -> anyhow::Result<serde_json::Value> {
+                let (x, y) = s.split_once(',').context("--pos must be x,y")?;
+                Ok(serde_json::json!({
+                    "x": x.trim().parse::<i16>()?,
+                    "y": y.trim().parse::<i16>()?,
+                }))
+            };
             let action = match verb.as_str() {
                 "move" => {
                     let d = dir.context("--dir required for move")?;
                     serde_json::json!({"kind":"move","data":{"dir":d}})
                 }
                 "wait" => serde_json::json!({"kind":"wait"}),
+                "observe" => serde_json::json!({"kind":"observe"}),
+                "gather" => {
+                    let p = parse_pos(&pos.context("--pos required for gather")?)?;
+                    serde_json::json!({"kind":"gather","data":{"target": p}})
+                }
+                "eat" => {
+                    let i = item.context("--item required for eat")?;
+                    serde_json::json!({"kind":"eat","data":{"item": i}})
+                }
+                "craft" => {
+                    let r = recipe.context("--recipe required for craft")?;
+                    serde_json::json!({"kind":"craft","data":{"recipe": r}})
+                }
+                "place" => {
+                    let i = item.context("--item required for place")?;
+                    let p = parse_pos(&pos.context("--pos required for place")?)?;
+                    serde_json::json!({"kind":"place","data":{"item": i, "pos": p}})
+                }
+                "pickup" => {
+                    let p = parse_pos(&pos.context("--pos required for pickup")?)?;
+                    serde_json::json!({"kind":"pick_up","data":{"pos": p}})
+                }
+                "drop" => {
+                    let i = item.context("--item required for drop")?;
+                    serde_json::json!({"kind":"drop","data":{"item": i, "n": n}})
+                }
                 v => anyhow::bail!("unknown verb {v}"),
             };
             let r: serde_json::Value = c.act(&action).await?;
