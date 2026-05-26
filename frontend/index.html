@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>灵渊 Lingyuan</title>
+    <link rel="stylesheet" href="/src/hud/style.css" />
+  </head>
+  <body>
+    <header id="topbar">
+      <span class="title">灵渊</span>
+      <span class="sep">·</span>
+      <span id="clock">连接中…</span>
+    </header>
+    <main id="layout">
+      <section id="stage" aria-label="世界舞台"></section>
+      <aside id="right-panel">
+        <section class="panel">
+          <h2>在世 Agents</h2>
+          <ul id="agent-list" class="list"></ul>
+        </section>
+        <section class="panel">
+          <h2>最近事件</h2>
+          <ul id="event-list" class="list"></ul>
+        </section>
+      </aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
