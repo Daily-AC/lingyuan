@@ -1,0 +1,101 @@
+use crate::state::AppState;
+use axum::{
+    extract::{
+        ws::{Message, WebSocket},
+        State, WebSocketUpgrade,
+    },
+    response::Response,
+};
+use futures_util::{sink::SinkExt, stream::StreamExt};
+use serde::Serialize;
+use tracing::{debug, info};
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum SpectatorMsg<'a> {
+    Snapshot {
+        tick: u64,
+        clock: &'a world::WorldClock,
+        grid_width: u16,
+        grid_height: u16,
+        tiles: Vec<TileMsg>,
+        agents: Vec<&'a crate::state::SpectatorAgent>,
+    },
+    Tick {
+        view: &'a crate::state::SpectatorView,
+    },
+}
+
+#[derive(Serialize)]
+struct TileMsg {
+    pos: world::TileCoord,
+    kind: world::TileKind,
+    biome: world::Biome,
+}
+
+pub async fn spectator_ws(ws: WebSocketUpgrade, State(s): State<AppState>) -> Response {
+    ws.on_upgrade(move |socket| handle(socket, s))
+}
+
+async fn handle(socket: WebSocket, s: AppState) {
+    let (mut tx, mut rx) = socket.split();
+    info!("spectator connected");
+
+    {
+        let w = s.world.lock().await;
+        let tiles: Vec<TileMsg> = w
+            .grid
+            .iter()
+            .map(|(pos, t)| TileMsg {
+                pos,
+                kind: t.kind,
+                biome: t.biome,
+            })
+            .collect();
+        let agents: Vec<crate::state::SpectatorAgent> = w
+            .agents
+            .values()
+            .map(|a| crate::state::SpectatorAgent {
+                id: a.id.clone(),
+                name: a.name.clone(),
+                pos: a.pos,
+                hp: a.status.hp,
+            })
+            .collect();
+        let msg = SpectatorMsg::Snapshot {
+            tick: w.clock.tick,
+            clock: &w.clock,
+            grid_width: w.grid.width,
+            grid_height: w.grid.height,
+            tiles,
+            agents: agents.iter().collect(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        if tx.send(Message::Text(json)).await.is_err() {
+            return;
+        }
+    }
+
+    let mut frames = s.frames_tx.subscribe();
+    let send_loop = async {
+        while let Ok(f) = frames.recv().await {
+            let msg = SpectatorMsg::Tick {
+                view: &f.spectator_view,
+            };
+            let json = serde_json::to_string(&msg).unwrap();
+            if tx.send(Message::Text(json)).await.is_err() {
+                break;
+            }
+        }
+    };
+    let recv_loop = async {
+        while let Some(Ok(m)) = rx.next().await {
+            debug!(?m, "spectator msg");
+            if matches!(m, Message::Close(_)) {
+                break;
+            }
+        }
+    };
+    tokio::select! { _ = send_loop => {}, _ = recv_loop => {} }
+    info!("spectator disconnected");
+}
