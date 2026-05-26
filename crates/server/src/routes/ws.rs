@@ -98,6 +98,13 @@ async fn handle(socket: WebSocket, s: AppState) {
                 label: None,
             });
         }
+        for c in w.creatures.values() {
+            entities.push(crate::state::SpectatorEntity {
+                pos: c.pos,
+                kind: format!("creature:{}", serde_kind(&c.kind)),
+                label: Some(format!("hp{}", c.hp)),
+            });
+        }
         let msg = SpectatorMsg::Snapshot {
             tick: w.clock.tick,
             clock: &w.clock,

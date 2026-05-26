@@ -35,6 +35,13 @@ fn collect_spectator_entities(w: &World) -> Vec<SpectatorEntity> {
             label: None,
         });
     }
+    for c in w.creatures.values() {
+        out.push(SpectatorEntity {
+            pos: c.pos,
+            kind: format!("creature:{}", serde_plain(&c.kind)),
+            label: Some(format!("hp{}", c.hp)),
+        });
+    }
     out
 }
 

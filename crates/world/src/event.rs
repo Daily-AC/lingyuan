@@ -1,4 +1,6 @@
-use crate::{agent::AgentId, clock::Season, coord::TileCoord, item::ItemKind};
+use crate::{
+    agent::AgentId, clock::Season, coord::TileCoord, creature::CreatureKind, item::ItemKind,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,6 +71,37 @@ pub enum TickEvent {
     AgentRespawned {
         agent: AgentId,
         at: TileCoord,
+    },
+    AgentAttackedAgent {
+        attacker: AgentId,
+        target: AgentId,
+        damage: i16,
+        weapon: Option<String>,
+    },
+    AgentAttackedCreature {
+        attacker: AgentId,
+        creature_id: u64,
+        damage: i16,
+    },
+    AgentAttackFailed {
+        agent: AgentId,
+        reason: String,
+    },
+    CreatureSpawned {
+        id: u64,
+        kind: CreatureKind,
+        at: TileCoord,
+    },
+    CreatureKilled {
+        id: u64,
+        kind: CreatureKind,
+        at: TileCoord,
+    },
+    CreatureAttackedAgent {
+        creature_id: u64,
+        creature_kind: CreatureKind,
+        target: AgentId,
+        damage: i16,
     },
     SeasonChanged {
         to: Season,

@@ -3,6 +3,7 @@ use crate::{
     building::BuildingKind,
     clock::{DayPhase, Season},
     coord::TileCoord,
+    creature::{CreatureId, CreatureKind},
     event::TickEvent,
     item::{ItemKind, ItemStack},
     plant::PlantKind,
@@ -79,5 +80,13 @@ pub enum VisibleEntity {
         #[serde(rename = "subkind")]
         building_kind: BuildingKind,
         owner: AgentId,
+    },
+    Creature {
+        id: CreatureId,
+        pos: TileCoord,
+        #[serde(rename = "species")]
+        creature_kind: CreatureKind,
+        hp: i16,
+        hostile: bool,
     },
 }
