@@ -43,6 +43,8 @@ async fn main() -> anyhow::Result<()> {
             n,
             target_kind,
             target,
+            text,
+            to,
         } => {
             let t = token_store::load().context("not joined yet")?;
             let c = client::Client::from_token(t);
@@ -98,6 +100,16 @@ async fn main() -> anyhow::Result<()> {
                         "kind":"attack",
                         "data": {"target": { "target_kind": tk, "target_id": target_value }}
                     })
+                }
+                "write_sign" | "sign" => {
+                    let p = parse_pos(&pos.context("--pos required for sign")?)?;
+                    let t = text.context("--text required for sign")?;
+                    serde_json::json!({"kind":"write_sign","data":{"pos": p, "text": t}})
+                }
+                "send_mail" | "mail" => {
+                    let target_name = to.context("--to=<name> required for mail")?;
+                    let t = text.context("--text required for mail")?;
+                    serde_json::json!({"kind":"send_mail","data":{"to": target_name, "text": t}})
                 }
                 v => anyhow::bail!("unknown verb {v}"),
             };

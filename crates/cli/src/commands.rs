@@ -48,6 +48,12 @@ pub enum Cmd {
         /// attack 用：agent_id（agent）或 creature_id（creature）
         #[arg(long)]
         target: Option<String>,
+        /// write_sign / send_mail 用文本
+        #[arg(long)]
+        text: Option<String>,
+        /// send_mail 用收件人 name
+        #[arg(long)]
+        to: Option<String>,
     },
     /// 删 token 文件
     Clear,

@@ -80,6 +80,22 @@ function describeEvent(ev: TickEvent): string {
       return `${ev.data.agent} 殁 @(${ev.data.at.x},${ev.data.at.y}) · ${ev.data.cause}`;
     case 'agent_respawned':
       return `${ev.data.agent} 还魂 @(${ev.data.at.x},${ev.data.at.y})`;
+    case 'agent_attacked_agent':
+      return `${ev.data.attacker} ⚔ ${ev.data.target} -${ev.data.damage}${ev.data.weapon ? '（' + ev.data.weapon + '）' : ''}`;
+    case 'agent_attacked_creature':
+      return `${ev.data.attacker} ⚔ 兽#${ev.data.creature_id} -${ev.data.damage}`;
+    case 'agent_attack_failed':
+      return `${ev.data.agent} 攻击未果：${ev.data.reason}`;
+    case 'creature_spawned':
+      return `${ev.data.kind} 现于 (${ev.data.at.x},${ev.data.at.y})`;
+    case 'creature_killed':
+      return `${ev.data.kind} 殁 @(${ev.data.at.x},${ev.data.at.y})`;
+    case 'creature_attacked_agent':
+      return `${ev.data.creature_kind} ⚔ ${ev.data.target} -${ev.data.damage}`;
+    case 'agent_wrote_sign':
+      return `${ev.data.agent} 立牌 @(${ev.data.pos.x},${ev.data.pos.y}): ${ev.data.text_excerpt}`;
+    case 'agent_sent_mail':
+      return `${ev.data.from} → ${ev.data.to}: ${ev.data.text_excerpt}`;
     case 'season_changed':
       return `节气转 → ${ev.data.to}`;
     case 'day_started':

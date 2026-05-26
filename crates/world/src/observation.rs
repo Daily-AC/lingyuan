@@ -21,7 +21,24 @@ pub struct Observation {
     pub self_: SelfView,
     pub vision: VisionView,
     pub visible_entities: Vec<VisibleEntity>,
+    pub nearby_signs: Vec<SignView>,
+    pub mail: Vec<MailView>,
     pub recent_events: Vec<TickEvent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignView {
+    pub pos: TileCoord,
+    pub text: String,
+    pub author: Option<String>,
+    pub written_at_tick: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MailView {
+    pub from: String,
+    pub text: String,
+    pub received_at_tick: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
