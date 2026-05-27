@@ -46,6 +46,16 @@ fn collect_spectator_entities(w: &World) -> Vec<SpectatorEntity> {
             id: Some(c.id),
         });
     }
+    for (pos, sign) in &w.signs {
+        // 截 30 字预览
+        let preview: String = sign.text.chars().take(30).collect();
+        out.push(SpectatorEntity {
+            pos: *pos,
+            kind: "sign:default".into(),
+            label: Some(preview),
+            id: None,
+        });
+    }
     out
 }
 

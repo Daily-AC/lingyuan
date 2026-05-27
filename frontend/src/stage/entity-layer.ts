@@ -107,6 +107,13 @@ export class EntityLayer {
         fallbackG
           .poly([cx, cy - r, cx + r, cy, cx, cy + r, cx - r, cy])
           .stroke({ color: 0x2a2826, width: 1 });
+      } else if (category === 'sign') {
+        // 路牌：金黄小杆 + 上方布幡
+        fallbackG.rect(cx - 1, cy - tileSize * 0.5, 2, tileSize * 0.7).fill({ color: 0x6b4a2e });
+        fallbackG
+          .rect(cx - tileSize * 0.32, cy - tileSize * 0.55, tileSize * 0.64, tileSize * 0.28)
+          .fill({ color: 0xd9a441 })
+          .stroke({ color: 0x2a2826, width: 1 });
       }
     }
     if (usedFallback) {
@@ -132,16 +139,28 @@ export class EntityLayer {
       anyBar = true;
     }
     if (anyBar) this.container.addChild(barG);
-    // 其他实体的文字 label（drop 数量等），creature label 已上 hp 条不再画字
+    // 其他实体的文字 label（drop 数量、sign 文本），creature 已上 hp 条不再画字
     for (const e of entities) {
       if (e.label === null) continue;
       if (e.kind.startsWith('creature:')) continue;
+      const isSign = e.kind.startsWith('sign:');
       const t = new Text({
         text: e.label,
-        style: { fontSize: 7, fill: 0xf2efe4, fontFamily: 'monospace' },
+        style: {
+          fontSize: isSign ? 9 : 7,
+          fill: isSign ? 0xf2efe4 : 0xf2efe4,
+          fontFamily: 'system-ui',
+          stroke: isSign ? { color: 0x2a2826, width: 3 } : undefined,
+        },
       });
-      t.x = e.pos.x * tileSize + tileSize * 0.55;
-      t.y = e.pos.y * tileSize + tileSize * 0.05;
+      if (isSign) {
+        t.anchor.set(0.5, 1);
+        t.x = e.pos.x * tileSize + tileSize / 2;
+        t.y = e.pos.y * tileSize - 4;
+      } else {
+        t.x = e.pos.x * tileSize + tileSize * 0.55;
+        t.y = e.pos.y * tileSize + tileSize * 0.05;
+      }
       this.container.addChild(t);
     }
   }

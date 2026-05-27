@@ -111,6 +111,15 @@ async fn handle(socket: WebSocket, s: AppState) {
                 id: Some(c.id),
             });
         }
+        for (pos, sign) in &w.signs {
+            let preview: String = sign.text.chars().take(30).collect();
+            entities.push(crate::state::SpectatorEntity {
+                pos: *pos,
+                kind: "sign:default".into(),
+                label: Some(preview),
+                id: None,
+            });
+        }
         let msg = SpectatorMsg::Snapshot {
             tick: w.clock.tick,
             clock: &w.clock,
