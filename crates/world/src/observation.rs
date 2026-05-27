@@ -85,6 +85,9 @@ pub enum VisibleEntity {
         #[serde(rename = "species")]
         plant_kind: PlantKind,
         available: bool,
+        /// 不可采时距离重新可采的剩余 tick；可采时为 None。
+        /// agent 用它来判断"该等还是该走"。
+        cooldown_remaining: Option<u64>,
     },
     ItemDrop {
         pos: TileCoord,

@@ -139,7 +139,10 @@ async fn hunger_decays_over_long_run() {
         hunger
     );
     let inv = obs["self"]["inventory"].as_array().unwrap();
-    assert!(inv.is_empty(), "inventory should start empty");
+    // 现在 spawn 自带 red_berry × 3 (starter food)
+    assert_eq!(inv.len(), 1, "spawn inventory should have starter food");
+    assert_eq!(inv[0]["item"], "red_berry");
+    assert_eq!(inv[0]["n"], 3);
 
     child.kill().await.ok();
 }

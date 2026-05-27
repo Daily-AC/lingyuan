@@ -98,7 +98,10 @@ impl World {
             rand_for_id(self.seed, self.clock.tick, self.agents.len() as u64)
         ));
         let pos = gen::find_safe_spawn(&self.grid, self.seed.wrapping_add(self.agents.len() as u64));
-        let agent = Agent::new_at(id.clone(), name.clone(), pos, self.clock.tick);
+        let mut agent = Agent::new_at(id.clone(), name.clone(), pos, self.clock.tick);
+        // 开局食物缓存：3 颗朱果（6×3 = 18 hunger），让 agent 至少撑过头一波
+        // 食物源冷却，避免出生死亡螺旋。
+        agent.inventory.add(ItemKind::RedBerry, 3);
         self.agents.insert(id.clone(), agent);
         self.pending_events.push(TickEvent::AgentJoined {
             agent: id.clone(),
@@ -480,16 +483,16 @@ impl World {
             return;
         };
         if !item.is_food() {
-            self.pending_events.push(TickEvent::AgentGatherFailed {
+            self.pending_events.push(TickEvent::AgentEatFailed {
                 agent: aid,
                 reason: format!("{:?} not food", item),
             });
             return;
         }
         if !a.inventory.remove(item, 1) {
-            self.pending_events.push(TickEvent::AgentGatherFailed {
+            self.pending_events.push(TickEvent::AgentEatFailed {
                 agent: aid,
-                reason: "no such item".into(),
+                reason: format!("no {:?} in inventory", item),
             });
             return;
         }
@@ -572,9 +575,9 @@ impl World {
 
     fn resolve_place(&mut self, aid: AgentId, item: ItemKind, pos: TileCoord) {
         let Some(kind) = recipe::kit_to_building(item) else {
-            self.pending_events.push(TickEvent::AgentCraftFailed {
+            self.pending_events.push(TickEvent::AgentPlaceFailed {
                 agent: aid,
-                reason: "not placeable".into(),
+                reason: format!("{:?} not placeable", item),
             });
             return;
         };
@@ -582,9 +585,9 @@ impl World {
             return;
         };
         if agent.pos.manhattan(pos) > 1 {
-            self.pending_events.push(TickEvent::AgentCraftFailed {
+            self.pending_events.push(TickEvent::AgentPlaceFailed {
                 agent: aid,
-                reason: "out of range".into(),
+                reason: "out of range (interaction_range=1)".into(),
             });
             return;
         }
@@ -592,23 +595,23 @@ impl World {
             || self.agents.values().any(|a| a.pos == pos)
             || self.entities.contains_key(&pos)
         {
-            self.pending_events.push(TickEvent::AgentCraftFailed {
+            self.pending_events.push(TickEvent::AgentPlaceFailed {
                 agent: aid,
                 reason: "tile occupied".into(),
             });
             return;
         }
         if !self.grid.get(pos).map(|t| t.is_walkable()).unwrap_or(false) {
-            self.pending_events.push(TickEvent::AgentCraftFailed {
+            self.pending_events.push(TickEvent::AgentPlaceFailed {
                 agent: aid,
                 reason: "tile not walkable".into(),
             });
             return;
         }
         if !self.agents.get_mut(&aid).unwrap().inventory.remove(item, 1) {
-            self.pending_events.push(TickEvent::AgentCraftFailed {
+            self.pending_events.push(TickEvent::AgentPlaceFailed {
                 agent: aid,
-                reason: "no kit in inv".into(),
+                reason: format!("no {:?} in inventory", item),
             });
             return;
         }
@@ -633,6 +636,10 @@ impl World {
             return;
         };
         if agent.pos.manhattan(pos) > 1 {
+            self.pending_events.push(TickEvent::AgentPickUpFailed {
+                agent: aid,
+                reason: "out of range (interaction_range=1)".into(),
+            });
             return;
         }
         let stack = match self.entities.get(&pos) {
@@ -640,6 +647,10 @@ impl World {
             _ => None,
         };
         let Some(stack) = stack else {
+            self.pending_events.push(TickEvent::AgentPickUpFailed {
+                agent: aid,
+                reason: "no item drop at pos".into(),
+            });
             return;
         };
         let added = self
@@ -664,6 +675,11 @@ impl World {
                 item: stack.item,
                 n: added,
             });
+        } else {
+            self.pending_events.push(TickEvent::AgentPickUpFailed {
+                agent: aid,
+                reason: "inventory full".into(),
+            });
         }
     }
 
@@ -672,6 +688,10 @@ impl World {
             return;
         };
         if !a.inventory.remove(item, n) {
+            self.pending_events.push(TickEvent::AgentDropFailed {
+                agent: aid,
+                reason: format!("inventory has fewer than {} {:?}", n, item),
+            });
             return;
         }
         let pos = a.pos;
@@ -746,11 +766,21 @@ impl World {
         for (pos, e) in &self.entities {
             if pos.manhattan(center) <= VISION_RADIUS {
                 match e {
-                    Entity::Plant { plant } => entities_view.push(VisibleEntity::Plant {
-                        pos: *pos,
-                        plant_kind: plant.kind,
-                        available: plant.is_available(self.clock.tick),
-                    }),
+                    Entity::Plant { plant } => {
+                        let tick = self.clock.tick;
+                        let available = plant.is_available(tick);
+                        let cooldown_remaining = if available {
+                            None
+                        } else {
+                            plant.harvested_until.map(|t| t.saturating_sub(tick))
+                        };
+                        entities_view.push(VisibleEntity::Plant {
+                            pos: *pos,
+                            plant_kind: plant.kind,
+                            available,
+                            cooldown_remaining,
+                        });
+                    }
                     Entity::ItemDrop { stack, expires_at } => {
                         entities_view.push(VisibleEntity::ItemDrop {
                             pos: *pos,
@@ -1168,5 +1198,139 @@ mod tests {
             },
         )]);
         assert!(!w.creatures.contains_key(&cid), "rabbit should be dead");
+    }
+
+    #[test]
+    fn eat_non_food_emits_eat_failed_not_gather_failed() {
+        // 上一版本 resolve_eat 把失败贴成了 AgentGatherFailed，agent 没法区分。
+        let mut w = World::bootstrap(42);
+        let id = w.join("alice".into()).unwrap();
+        w.agents
+            .get_mut(&id)
+            .unwrap()
+            .inventory
+            .add(ItemKind::Reed, 1);
+        let events = w.step(vec![(
+            id.clone(),
+            Action::Eat { item: ItemKind::Reed },
+        )]);
+        let has_eat_failed = events
+            .iter()
+            .any(|e| matches!(e, TickEvent::AgentEatFailed { agent, .. } if agent == &id));
+        let has_gather_failed = events
+            .iter()
+            .any(|e| matches!(e, TickEvent::AgentGatherFailed { .. }));
+        assert!(has_eat_failed, "AgentEatFailed should be emitted");
+        assert!(!has_gather_failed, "should NOT spill into AgentGatherFailed");
+        // reed 不消耗
+        assert_eq!(w.agents[&id].inventory.count(ItemKind::Reed), 1);
+    }
+
+    #[test]
+    fn pickup_out_of_range_emits_pickup_failed() {
+        let mut w = World::bootstrap(42);
+        let id = w.join("alice".into()).unwrap();
+        let my = w.agents[&id].pos;
+        let far = TileCoord::new(my.x + 5, my.y);
+        let events = w.step(vec![(
+            id.clone(),
+            Action::PickUp { pos: far },
+        )]);
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                TickEvent::AgentPickUpFailed { agent, reason }
+                    if agent == &id && reason.contains("range")
+            )),
+            "expected AgentPickUpFailed (out of range), got events: {:?}",
+            events
+        );
+    }
+
+    #[test]
+    fn drop_more_than_held_emits_drop_failed() {
+        let mut w = World::bootstrap(42);
+        let id = w.join("alice".into()).unwrap();
+        // join 已经给了 red_berry × 3，drop 5 个超过库存
+        let events = w.step(vec![(
+            id.clone(),
+            Action::Drop {
+                item: ItemKind::RedBerry,
+                n: 5,
+            },
+        )]);
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                TickEvent::AgentDropFailed { agent, .. } if agent == &id
+            )),
+            "expected AgentDropFailed, got events: {:?}",
+            events
+        );
+        // 库存没动
+        assert_eq!(w.agents[&id].inventory.count(ItemKind::RedBerry), 3);
+    }
+
+    #[test]
+    fn place_non_kit_emits_place_failed() {
+        let mut w = World::bootstrap(42);
+        let id = w.join("alice".into()).unwrap();
+        let my = w.agents[&id].pos;
+        let target = TileCoord::new(my.x + 1, my.y);
+        let events = w.step(vec![(
+            id.clone(),
+            Action::Place {
+                item: ItemKind::Mushroom, // 不是 kit
+                pos: target,
+            },
+        )]);
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                TickEvent::AgentPlaceFailed { agent, reason }
+                    if agent == &id && reason.contains("not placeable")
+            )),
+            "expected AgentPlaceFailed (not placeable), got events: {:?}",
+            events
+        );
+    }
+
+    #[test]
+    fn spawn_includes_starter_red_berries() {
+        let mut w = World::bootstrap(42);
+        let id = w.join("alice".into()).unwrap();
+        assert_eq!(
+            w.agents[&id].inventory.count(ItemKind::RedBerry),
+            3,
+            "spawn should grant 3 red berries to prevent death spiral"
+        );
+    }
+
+    #[test]
+    fn plant_cooldown_remaining_decreases_then_clears() {
+        // 用一个伪植物：harvested_until = tick + 10，然后 tick 5 步看 cooldown_remaining=5
+        let mut w = World::bootstrap(42);
+        let id = w.join("alice".into()).unwrap();
+        let my = w.agents[&id].pos;
+        // 在邻位放一个手动挂冷却的植物
+        let cd_pos = TileCoord::new(my.x + 1, my.y);
+        if !w.grid.get(cd_pos).map(|t| t.is_walkable()).unwrap_or(false) {
+            return; // 邻位是水/山，跳过
+        }
+        let mut plant = Plant::fresh(PlantKind::Mushroom);
+        plant.harvested_until = Some(w.clock.tick + 10);
+        w.entities.insert(cd_pos, Entity::Plant { plant });
+        let obs = w.observe(&id).unwrap();
+        let cd_entity = obs
+            .visible_entities
+            .iter()
+            .find_map(|e| match e {
+                crate::observation::VisibleEntity::Plant { pos, available, cooldown_remaining, .. }
+                    if *pos == cd_pos => Some((*available, *cooldown_remaining)),
+                _ => None,
+            })
+            .expect("plant should be in fov");
+        assert!(!cd_entity.0, "should be unavailable");
+        assert_eq!(cd_entity.1, Some(10));
     }
 }
