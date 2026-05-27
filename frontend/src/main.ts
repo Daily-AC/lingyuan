@@ -66,7 +66,18 @@ function renderFocusHud(agents: SpectatorAgent[], focusedId: string | null): voi
     const chip = document.createElement('span');
     chip.className = 'chip';
     const label = ITEM_LABEL[stack.item] ?? stack.item;
-    chip.innerHTML = `${label}<strong>×${stack.n}</strong>`;
+    const img = document.createElement('img');
+    img.src = `/sprites/item/${stack.item}.png`;
+    img.alt = label;
+    img.className = 'chip-icon';
+    img.onerror = () => img.remove();
+    const txt = document.createElement('span');
+    txt.textContent = label;
+    const n = document.createElement('strong');
+    n.textContent = `×${stack.n}`;
+    chip.appendChild(img);
+    chip.appendChild(txt);
+    chip.appendChild(n);
     inv.appendChild(chip);
   }
 }
