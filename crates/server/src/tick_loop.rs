@@ -86,11 +86,13 @@ pub async fn run(state: AppState, mut rx: mpsc::Receiver<ActionEnvelope>) {
                     pos: a.pos,
                     hp: a.status.hp,
                     hunger: a.status.hunger,
+                    stamina: a.status.stamina,
                     state: match a.state {
                         world::AgentState::Alive => "alive".into(),
                         world::AgentState::Dying { .. } => "dying".into(),
                         world::AgentState::Meditating { .. } => "meditating".into(),
                     },
+                    inventory: a.inventory.slots.clone(),
                 })
                 .collect(),
             entities: collect_spectator_entities(&w),

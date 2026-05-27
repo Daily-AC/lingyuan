@@ -19,11 +19,55 @@ function renderClock(tick: number): void {
   const ticksPerYear = ticksPerSeason * 4;
   const year = Math.floor(tick / ticksPerYear);
   const seasonIdx = Math.floor(tick / ticksPerSeason) % 4;
+  const seasonKey = ['chun', 'xia', 'qiu', 'dong'][seasonIdx] ?? 'chun';
   const day = Math.floor(tick / ticksPerDay) % 10;
   const tickInDay = tick % ticksPerDay;
   const seasonLabel = ['春', '夏', '秋', '冬'][seasonIdx] ?? '?';
+  let phase: 'day' | 'dusk' | 'night' | 'dawn';
+  if (tickInDay < 30) phase = 'day';
+  else if (tickInDay < 36) phase = 'dusk';
+  else if (tickInDay < 66) phase = 'night';
+  else phase = 'dawn';
+  const phaseLabel = { day: '昼', dusk: '黄昏', night: '夜', dawn: '拂晓' }[phase];
   el('clock').textContent =
-    `第 ${year} 年 · ${seasonLabel} · 第 ${day + 1} 日 · 刻 ${tickInDay} / 72 · tick ${tick}`;
+    `第 ${year} 年 · ${seasonLabel}·${phaseLabel} · 第 ${day + 1} 日 · 刻 ${tickInDay} / 72 · tick ${tick}`;
+  const stage = el('stage');
+  stage.dataset.phase = phase;
+  stage.dataset.season = seasonKey;
+}
+
+const ITEM_LABEL: Record<string, string> = {
+  bamboo: '竹', pinewood: '松木', stone: '石', flint: '燧石', clay: '陶土',
+  vine: '藤', reed: '苇', lingzhi: '灵芝', mushroom: '菇', red_berry: '朱果',
+  bamboo_spear: '竹枪', stone_axe: '石斧', rope: '麻绳', clay_pot: '陶罐',
+  cooked_mushroom: '烤菇', cooked_berry: '烤果', rice_cake: '苇糕',
+  campfire_kit: '篝火kit', cooking_stove_kit: '灶台kit',
+};
+
+function renderFocusHud(agents: SpectatorAgent[], focusedId: string | null): void {
+  const hud = el<HTMLDivElement>('focus-hud');
+  if (focusedId === null) {
+    hud.hidden = true;
+    return;
+  }
+  const a = agents.find((x) => x.id === focusedId);
+  if (a === undefined) {
+    hud.hidden = true;
+    return;
+  }
+  hud.hidden = false;
+  el('focus-name').textContent = a.name;
+  el('focus-stats').textContent =
+    `HP ${a.hp}/100 · 饥 ${a.hunger}/100 · 力 ${a.stamina}/100 · (${a.pos.x},${a.pos.y}) · ${a.state}`;
+  const inv = el<HTMLDivElement>('focus-inventory');
+  inv.replaceChildren();
+  for (const stack of a.inventory) {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    const label = ITEM_LABEL[stack.item] ?? stack.item;
+    chip.innerHTML = `${label}<strong>×${stack.n}</strong>`;
+    inv.appendChild(chip);
+  }
 }
 
 function renderAgents(
@@ -164,12 +208,14 @@ async function main(): Promise<void> {
     const next = cur === id ? null : id;
     stage.focusAgent(next);
     renderAgents(lastAgents, stage.focusedId(), pickAgent);
+    renderFocusHud(lastAgents, stage.focusedId());
     refreshFocusBtn();
   };
 
   focusBtn.addEventListener('click', () => {
     stage.focusAgent(null);
     renderAgents(lastAgents, null, pickAgent);
+    renderFocusHud(lastAgents, null);
     refreshFocusBtn();
   });
 
@@ -187,6 +233,7 @@ async function main(): Promise<void> {
       lastAgents = msg.agents;
       renderClock(msg.tick);
       renderAgents(msg.agents, stage.focusedId(), pickAgent);
+      renderFocusHud(msg.agents, stage.focusedId());
     } else {
       const { tick, agents, entities, events } = msg.view;
       stage.setEntities(entities);
@@ -194,6 +241,7 @@ async function main(): Promise<void> {
       lastAgents = agents;
       renderClock(tick);
       renderAgents(agents, stage.focusedId(), pickAgent);
+      renderFocusHud(agents, stage.focusedId());
       pushEvents(tick, events);
       beat();
     }

@@ -116,14 +116,29 @@ fn decide(obs: &serde_json::Value) -> serde_json::Value {
         }
     }
 
-    // 4 + 5. 找最近可采 plant
+    // 4 + 5. 找最近可采 plant，hunger 低时只挑食物类（mushroom/red_berry/lingzhi）
+    let prefer_food = hunger < 60;
+    let food_species = ["mushroom", "red_berry", "lingzhi"];
     if let Some(arr) = entities {
-        let nearest_plant = arr
-            .iter()
-            .filter(|e| e["kind"] == "plant" && e["available"].as_bool().unwrap_or(false))
-            .map(|e| (e, dist(my_pos, parse_pos(&e["pos"]))))
-            .min_by_key(|(_, d)| *d);
-        if let Some((e, d)) = nearest_plant {
+        let pick_plant = |only_food: bool| -> Option<(serde_json::Value, i32)> {
+            arr.iter()
+                .filter(|e| e["kind"] == "plant" && e["available"].as_bool().unwrap_or(false))
+                .filter(|e| {
+                    if !only_food {
+                        return true;
+                    }
+                    let s = e["species"].as_str().unwrap_or("");
+                    food_species.contains(&s)
+                })
+                .map(|e| (e.clone(), dist(my_pos, parse_pos(&e["pos"]))))
+                .min_by_key(|(_, d)| *d)
+        };
+        let target = if prefer_food {
+            pick_plant(true).or_else(|| pick_plant(false))
+        } else {
+            pick_plant(false)
+        };
+        if let Some((e, d)) = target {
             let pos = parse_pos(&e["pos"]);
             if d <= 1 {
                 return gather(pos);

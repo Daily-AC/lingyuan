@@ -35,13 +35,20 @@ export interface WorldClock {
 
 export type AgentRuntimeState = 'alive' | 'dying' | 'meditating';
 
+export interface ItemStack {
+  item: string;
+  n: number;
+}
+
 export interface SpectatorAgent {
   id: string;
   name: string;
   pos: TileCoord;
   hp: number;
   hunger: number;
+  stamina: number;
   state: AgentRuntimeState;
+  inventory: ItemStack[];
 }
 
 export interface SpectatorEntity {
