@@ -8,6 +8,8 @@ pub enum CreatureKind {
     Deer,
     Wolf,
     NightDemon,
+    /// boss: 渡劫者，全图通告
+    BossDujie,
 }
 
 impl CreatureKind {
@@ -17,6 +19,7 @@ impl CreatureKind {
             CreatureKind::Deer => 24,
             CreatureKind::Wolf => 30,
             CreatureKind::NightDemon => 50,
+            CreatureKind::BossDujie => 800,
         }
     }
     pub fn attack(self) -> i16 {
@@ -24,13 +27,23 @@ impl CreatureKind {
             CreatureKind::Rabbit | CreatureKind::Deer => 0,
             CreatureKind::Wolf => 8,
             CreatureKind::NightDemon => 12,
+            CreatureKind::BossDujie => 35,
         }
     }
     pub fn vision(self) -> u16 {
-        5
+        match self {
+            CreatureKind::BossDujie => 12,
+            _ => 5,
+        }
     }
     pub fn is_hostile(self) -> bool {
-        matches!(self, CreatureKind::Wolf | CreatureKind::NightDemon)
+        matches!(
+            self,
+            CreatureKind::Wolf | CreatureKind::NightDemon | CreatureKind::BossDujie
+        )
+    }
+    pub fn is_boss(self) -> bool {
+        matches!(self, CreatureKind::BossDujie)
     }
     /// 死亡掉落（v1 都返回空，等 raw_meat ItemKind 加进来）
     pub fn loot(self) -> &'static [(ItemKind, u16)] {

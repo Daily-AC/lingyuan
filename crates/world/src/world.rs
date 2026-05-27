@@ -368,7 +368,17 @@ impl World {
                 });
                 if is_dead {
                     self.creatures.remove(&cid);
-                    self.pending_events.push(TickEvent::CreatureKilled { id: cid, kind, at: pos });
+                    if kind.is_boss() {
+                        self.pending_events.push(TickEvent::BossKilled {
+                            id: cid,
+                            kind,
+                            slayer: Some(aid.clone()),
+                            at: pos,
+                        });
+                    } else {
+                        self.pending_events
+                            .push(TickEvent::CreatureKilled { id: cid, kind, at: pos });
+                    }
                 }
             }
         }

@@ -92,6 +92,18 @@ pub enum TickEvent {
         kind: CreatureKind,
         at: TileCoord,
     },
+    BossSpawned {
+        id: u64,
+        kind: CreatureKind,
+        at: TileCoord,
+        announcement: String,
+    },
+    BossKilled {
+        id: u64,
+        kind: CreatureKind,
+        slayer: Option<AgentId>,
+        at: TileCoord,
+    },
     CreatureKilled {
         id: u64,
         kind: CreatureKind,
