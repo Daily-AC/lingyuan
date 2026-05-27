@@ -218,6 +218,118 @@ async fn world_info_exposes_recipes_and_constants() {
 }
 
 #[tokio::test]
+async fn recent_events_survive_across_multiple_ticks() {
+    // 回归测试：tick_loop 之前每 tick 都 .clear() recent_events_by_agent，
+    // agent 观察晚一两 tick 就丢事件。改成"只在该 agent 有新事件时覆写"后，
+    // 即使过去 N tick agent 没做任何事，最近的失败事件仍应可见。
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("test.db");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_server"))
+        .kill_on_drop(true)
+        .env("LINGYUAN_BIND", "127.0.0.1:17782")
+        .env("LINGYUAN_DB", db_path.to_str().unwrap())
+        .env("LINGYUAN_TICK_MS", "150")
+        .stderr(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let base = "http://127.0.0.1:17782";
+    assert!(wait_for_clock(base, Duration::from_secs(10)).await.is_some());
+
+    let cli = reqwest::Client::builder().no_proxy().build().unwrap();
+    let join: serde_json::Value = cli
+        .post(format!("{}/api/v1/join", base))
+        .json(&serde_json::json!({"name":"linger"}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let id = join["agent_id"].as_str().unwrap().to_string();
+    let tok = join["token"].as_str().unwrap().to_string();
+
+    // 触发一个失败事件：eat 不存在的物品
+    let r = cli
+        .post(format!("{}/api/v1/act", base))
+        .header("Authorization", format!("Bearer {}", tok))
+        .header("X-Agent-Id", &id)
+        .json(&serde_json::json!({"kind":"eat","data":{"item":"bamboo"}}))
+        .send()
+        .await
+        .unwrap();
+    assert!(r.status().is_success());
+
+    let observe_at = |delay_ms: u64| {
+        let cli = cli.clone();
+        let id = id.clone();
+        let tok = tok.clone();
+        async move {
+            sleep(Duration::from_millis(delay_ms)).await;
+            cli.get(format!("{}/api/v1/observe", base))
+                .header("Authorization", format!("Bearer {}", tok))
+                .header("X-Agent-Id", &id)
+                .send()
+                .await
+                .unwrap()
+                .json::<serde_json::Value>()
+                .await
+                .unwrap()
+        }
+    };
+
+    // 等到 tick 落地（150ms × 2 = 300ms），失败事件应当出现
+    let obs1 = observe_at(400).await;
+    let evts1 = obs1["recent_events"].as_array().unwrap();
+    let has_fail_1 = evts1
+        .iter()
+        .any(|e| e["kind"] == "agent_eat_failed");
+    assert!(
+        has_fail_1,
+        "act 落地后立即 observe 应看到 agent_eat_failed，得到 {:?}",
+        evts1
+    );
+
+    // 关键：再等 6 个 tick（≈ 900ms）什么也不做，事件仍应存活
+    let obs2 = observe_at(900).await;
+    let evts2 = obs2["recent_events"].as_array().unwrap();
+    let has_fail_2 = evts2
+        .iter()
+        .any(|e| e["kind"] == "agent_eat_failed");
+    assert!(
+        has_fail_2,
+        "过了 6 个 tick recent_events 不该被清空（曾经的 bug）。得到 {:?}",
+        evts2
+    );
+
+    // 触发新事件（move）——recent_events 应被覆写，不再含旧的 eat_failed
+    let _ = cli
+        .post(format!("{}/api/v1/act", base))
+        .header("Authorization", format!("Bearer {}", tok))
+        .header("X-Agent-Id", &id)
+        .json(&serde_json::json!({"kind":"move","data":{"dir":"north"}}))
+        .send()
+        .await
+        .unwrap();
+    let obs3 = observe_at(400).await;
+    let evts3 = obs3["recent_events"].as_array().unwrap();
+    let has_move = evts3
+        .iter()
+        .any(|e| e["kind"] == "agent_moved" || e["kind"] == "agent_move_failed");
+    let still_has_fail = evts3
+        .iter()
+        .any(|e| e["kind"] == "agent_eat_failed");
+    assert!(has_move, "新动作应当在 recent_events 出现");
+    assert!(
+        !still_has_fail,
+        "新动作产生事件后旧 eat_failed 应被覆写。得到 {:?}",
+        evts3
+    );
+
+    child.kill().await.ok();
+}
+
+#[tokio::test]
 async fn act_rejects_duplicate_in_same_tick() {
     // 验证：同一 agent 在 tick 落地前连发两个 action，第二个被 409 拒绝，
     // 并附带既存 action 和 will_resolve_at_tick。
