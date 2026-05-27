@@ -57,6 +57,11 @@ pub enum Cmd {
     },
     /// 删 token 文件
     Clear,
+    /// 从 events 表算 agent 战绩排行（采集 / 击杀 / 死亡数）
+    Stats {
+        #[arg(long, default_value = "data/world.db")]
+        db: String,
+    },
     /// 实时尾随事件流（每秒轮询 SQLite events 表）
     Watch {
         #[arg(long, default_value = "data/world.db")]

@@ -8,6 +8,85 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
+pub fn stats(db_path: &Path) -> Result<()> {
+    if !db_path.exists() {
+        return Err(anyhow!("db file not found: {}", db_path.display()));
+    }
+    // 一口气拉所有事件
+    let out = Command::new("sqlite3")
+        .arg("-noheader")
+        .arg(db_path)
+        .arg("SELECT event_json FROM events")
+        .output()
+        .context("sqlite3")?;
+    if !out.status.success() {
+        return Err(anyhow!("sqlite3 failed: {}", String::from_utf8_lossy(&out.stderr)));
+    }
+    let mut gathers: BTreeMap<String, u32> = BTreeMap::new();
+    let mut kills: BTreeMap<String, u32> = BTreeMap::new();
+    let mut deaths: BTreeMap<String, u32> = BTreeMap::new();
+    let mut crafted: BTreeMap<String, u32> = BTreeMap::new();
+    let mut signs: BTreeMap<String, u32> = BTreeMap::new();
+    let mut mails: BTreeMap<String, u32> = BTreeMap::new();
+    let mut names: BTreeMap<String, String> = BTreeMap::new();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    for line in stdout.lines() {
+        if line.is_empty() { continue; }
+        let v: serde_json::Value = match serde_json::from_str(line) { Ok(x) => x, Err(_) => continue };
+        let kind = v["kind"].as_str().unwrap_or("");
+        let d = &v["data"];
+        match kind {
+            "agent_joined" => {
+                if let (Some(id), Some(n)) = (d["agent"].as_str(), d["name"].as_str()) {
+                    names.insert(id.to_string(), n.to_string());
+                }
+            }
+            "agent_gathered" => {
+                if let Some(a) = d["agent"].as_str() { *gathers.entry(a.into()).or_default() += 1; }
+            }
+            "agent_attacked_creature" => {
+                // 算击杀（粗略：每次攻击都记 1；精确应 join creature_killed event slayer，但 server 当前只在 boss_killed 暴露 slayer）
+                if let Some(a) = d["attacker"].as_str() { *kills.entry(a.into()).or_default() += 1; }
+            }
+            "agent_died" => {
+                if let Some(a) = d["agent"].as_str() { *deaths.entry(a.into()).or_default() += 1; }
+            }
+            "agent_crafted" => {
+                if let Some(a) = d["agent"].as_str() { *crafted.entry(a.into()).or_default() += 1; }
+            }
+            "agent_wrote_sign" => {
+                if let Some(a) = d["agent"].as_str() { *signs.entry(a.into()).or_default() += 1; }
+            }
+            "agent_sent_mail" => {
+                if let Some(a) = d["from"].as_str() { *mails.entry(a.into()).or_default() += 1; }
+            }
+            _ => {}
+        }
+    }
+    let all_ids: std::collections::BTreeSet<String> = gathers.keys()
+        .chain(kills.keys()).chain(deaths.keys())
+        .chain(crafted.keys()).chain(signs.keys()).chain(mails.keys())
+        .cloned().collect();
+    println!("{:<18} {:<14} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
+        "agent_id", "name", "gather", "atk", "craft", "sign", "mail", "die");
+    println!("{}", "-".repeat(90));
+    let mut rows: Vec<_> = all_ids.iter().map(|id| {
+        let g = *gathers.get(id).unwrap_or(&0);
+        let k = *kills.get(id).unwrap_or(&0);
+        let dn = *deaths.get(id).unwrap_or(&0);
+        let cr = *crafted.get(id).unwrap_or(&0);
+        let sg = *signs.get(id).unwrap_or(&0);
+        let ml = *mails.get(id).unwrap_or(&0);
+        let n = names.get(id).cloned().unwrap_or_else(|| "?".into());
+        (id.clone(), n, g, k, cr, sg, ml, dn)
+    }).collect();
+    rows.sort_by_key(|r| std::cmp::Reverse((r.2 + r.3) as i64));
+    for (id, n, g, k, cr, sg, ml, dn) in rows {
+        println!("{:<18} {:<14} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}", id, n, g, k, cr, sg, ml, dn);
+    }
+    Ok(())
+}
+
 pub fn watch(db_path: &Path, kinds_filter: Option<Vec<String>>, only_new: bool) -> Result<()> {
     if !db_path.exists() {
         return Err(anyhow!("db file not found: {}", db_path.display()));
