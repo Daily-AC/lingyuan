@@ -1,4 +1,4 @@
-import { Container, Graphics, Sprite, Text, Ticker } from 'pixi.js';
+import { Container, Graphics, Rectangle, Sprite, Text, Ticker } from 'pixi.js';
 import type { SpectatorAgent } from '../types';
 import { TILE_SIZE } from './tile-layer';
 import { getCached, tryLoad } from './sprite-cache';
@@ -39,6 +39,7 @@ export class AgentLayer {
   private readonly states = new Map<string, AgentRenderState>();
   private selectedId: string | null = null;
   private tickerStarted = false;
+  private clickHandler: ((id: string) => void) | null = null;
 
   constructor() {
     this.container = new Container();
@@ -47,6 +48,10 @@ export class AgentLayer {
 
   setRedrawHook(fn: () => void): void {
     this.redrawHook = fn;
+  }
+
+  onAgentClicked(fn: (id: string) => void): void {
+    this.clickHandler = fn;
   }
 
   setSelected(id: string | null): void {
@@ -88,6 +93,19 @@ export class AgentLayer {
     const container = new Container();
     container.label = `agent-${a.id}`;
     const tint = hashTint(a.id);
+    container.eventMode = 'static';
+    container.cursor = 'pointer';
+    container.hitArea = new Rectangle(
+      -TILE_SIZE * 0.7,
+      -TILE_SIZE * 0.9,
+      TILE_SIZE * 1.4,
+      TILE_SIZE * 1.6,
+    );
+    const captured = a.id;
+    container.on('pointerdown', (ev) => {
+      ev.stopPropagation();
+      if (this.clickHandler !== null) this.clickHandler(captured);
+    });
 
     // 脚下光环（恒亮，半透月白）
     const groundHalo = new Graphics();

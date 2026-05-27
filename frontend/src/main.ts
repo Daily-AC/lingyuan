@@ -264,6 +264,7 @@ async function main(): Promise<void> {
       unfocus();
     }
   });
+  stage.onAgentClicked(pickAgent);
 
   const pulseEl = el<HTMLSpanElement>('tick-pulse');
   const beat = () => {
