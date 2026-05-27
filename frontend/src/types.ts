@@ -53,9 +53,10 @@ export interface SpectatorAgent {
 
 export interface SpectatorEntity {
   pos: TileCoord;
-  /// Format: "plant:mushroom" | "drop:stone" | "building:campfire"
+  /// Format: "plant:mushroom" | "drop:stone" | "building:campfire" | "creature:wolf"
   kind: string;
   label: string | null;
+  id: number | null;
 }
 
 export type Season = 'chun' | 'xia' | 'qiu' | 'dong';

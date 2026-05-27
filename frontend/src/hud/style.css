@@ -186,6 +186,34 @@ body {
   transition: filter 0.8s ease;
 }
 
+#minimap-frame {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  background: rgba(42, 40, 38, 0.86);
+  border: 1px solid var(--luori);
+  border-radius: 4px;
+  padding: 6px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+#minimap-frame .minimap-label {
+  color: var(--qingzhu);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  text-align: center;
+}
+
+#minimap {
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  border: 1px solid rgba(217, 164, 65, 0.5);
+}
+
 #right-panel {
   background: rgba(242, 239, 228, 0.04);
   border-left: 1px solid var(--line);

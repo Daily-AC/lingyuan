@@ -85,11 +85,13 @@ async fn handle(socket: WebSocket, s: AppState) {
                     pos: *pos,
                     kind: format!("plant:{}", serde_kind(&plant.kind)),
                     label: None,
+                    id: None,
                 }),
                 world::Entity::ItemDrop { stack, .. } => entities.push(crate::state::SpectatorEntity {
                     pos: *pos,
                     kind: format!("drop:{}", serde_kind(&stack.item)),
                     label: Some(format!("×{}", stack.n)),
+                    id: None,
                 }),
             }
         }
@@ -98,6 +100,7 @@ async fn handle(socket: WebSocket, s: AppState) {
                 pos: *pos,
                 kind: format!("building:{}", serde_kind(&b.kind)),
                 label: None,
+                id: None,
             });
         }
         for c in w.creatures.values() {
@@ -105,6 +108,7 @@ async fn handle(socket: WebSocket, s: AppState) {
                 pos: c.pos,
                 kind: format!("creature:{}", serde_kind(&c.kind)),
                 label: Some(format!("hp{}", c.hp)),
+                id: Some(c.id),
             });
         }
         let msg = SpectatorMsg::Snapshot {

@@ -1,8 +1,9 @@
 import { Application, Container } from 'pixi.js';
-import type { SpectatorAgent, SpectatorEntity, TileMsg } from '../types';
+import type { SpectatorAgent, SpectatorEntity, TileMsg, TickEvent } from '../types';
 import { TILE_SIZE, TileLayer } from './tile-layer';
 import { AgentLayer } from './agent-layer';
 import { EntityLayer } from './entity-layer';
+import { EffectsLayer } from './effects-layer';
 
 export class WorldStage {
   private readonly app: Application;
@@ -10,6 +11,8 @@ export class WorldStage {
   private readonly tileLayer: TileLayer;
   private readonly entityLayer: EntityLayer;
   private readonly agentLayer: AgentLayer;
+  private readonly effectsLayer: EffectsLayer;
+  private lastEntities: SpectatorEntity[];
   private host: HTMLElement | null;
   private gridWidth: number;
   private gridHeight: number;
@@ -25,6 +28,8 @@ export class WorldStage {
     this.tileLayer = new TileLayer();
     this.entityLayer = new EntityLayer();
     this.agentLayer = new AgentLayer();
+    this.effectsLayer = new EffectsLayer();
+    this.lastEntities = [];
     this.host = null;
     this.gridWidth = 0;
     this.gridHeight = 0;
@@ -48,6 +53,7 @@ export class WorldStage {
     this.root.addChild(this.tileLayer.container);
     this.root.addChild(this.entityLayer.container);
     this.root.addChild(this.agentLayer.container);
+    this.root.addChild(this.effectsLayer.container);
     this.app.stage.addChild(this.root);
 
     this.resizeObserver = new ResizeObserver(() => this.handleResize());
@@ -86,8 +92,69 @@ export class WorldStage {
   }
 
   setEntities(entities: SpectatorEntity[]): void {
+    this.lastEntities = entities;
     this.entityLayer.setRedrawHook(() => this.entityLayer.render(entities, TILE_SIZE));
     this.entityLayer.render(entities, TILE_SIZE);
+  }
+
+  pushEvents(events: TickEvent[]): void {
+    for (const e of events) {
+      this.routeEvent(e);
+    }
+  }
+
+  private routeEvent(e: TickEvent): void {
+    const agentPos = (name: string) => {
+      const a = this.lastAgents.find((x) => x.name === name || x.id === name);
+      return a ? this.tileWorldCenter(a.pos.x, a.pos.y) : null;
+    };
+    const creaturePos = (id: number) => {
+      const c = this.lastEntities.find((x) => x.id === id);
+      return c ? this.tileWorldCenter(c.pos.x, c.pos.y) : null;
+    };
+    switch (e.kind) {
+      case 'agent_attacked_agent': {
+        const p = agentPos(e.data.target);
+        if (p) this.effectsLayer.push({ worldX: p[0], worldY: p[1], label: `-${e.data.damage}`, color: 0xb83a2e });
+        break;
+      }
+      case 'creature_attacked_agent': {
+        const p = agentPos(e.data.target);
+        if (p) this.effectsLayer.push({ worldX: p[0], worldY: p[1], label: `-${e.data.damage}`, color: 0xb83a2e });
+        break;
+      }
+      case 'agent_attacked_creature': {
+        const p = creaturePos(e.data.creature_id);
+        if (p) this.effectsLayer.push({ worldX: p[0], worldY: p[1], label: `-${e.data.damage}`, color: 0xd9a441 });
+        break;
+      }
+      case 'agent_ate': {
+        const p = agentPos(e.data.agent);
+        if (p) this.effectsLayer.push({ worldX: p[0], worldY: p[1] - 6, label: `+${e.data.hunger_gain}饱`, color: 0x5c8c6a });
+        break;
+      }
+      case 'agent_gathered': {
+        const p = agentPos(e.data.agent);
+        if (p) this.effectsLayer.push({ worldX: p[0], worldY: p[1] - 6, label: `+${e.data.n} ${e.data.item}`, color: 0xf2efe4 });
+        break;
+      }
+      case 'agent_died': {
+        const [wx, wy] = this.tileWorldCenter(e.data.at.x, e.data.at.y);
+        this.effectsLayer.push({ worldX: wx, worldY: wy, label: '殁', color: 0xb83a2e });
+        break;
+      }
+      case 'boss_spawned': {
+        const [wx, wy] = this.tileWorldCenter(e.data.at.x, e.data.at.y);
+        this.effectsLayer.push({ worldX: wx, worldY: wy, label: `※ ${e.data.announcement}`, color: 0xb83a2e });
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  private tileWorldCenter(tx: number, ty: number): [number, number] {
+    return [tx * TILE_SIZE + TILE_SIZE / 2, ty * TILE_SIZE + TILE_SIZE / 2];
   }
 
   /** 切换关注模式；null = 全图，否则跟焦该 agent */

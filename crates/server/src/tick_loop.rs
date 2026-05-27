@@ -17,6 +17,7 @@ fn collect_spectator_entities(w: &World) -> Vec<SpectatorEntity> {
                     pos: *pos,
                     kind,
                     label: None,
+                    id: None,
                 });
             }
             world::Entity::ItemDrop { stack, .. } => {
@@ -24,6 +25,7 @@ fn collect_spectator_entities(w: &World) -> Vec<SpectatorEntity> {
                     pos: *pos,
                     kind: format!("drop:{}", serde_plain(&stack.item)),
                     label: Some(format!("×{}", stack.n)),
+                    id: None,
                 });
             }
         }
@@ -33,6 +35,7 @@ fn collect_spectator_entities(w: &World) -> Vec<SpectatorEntity> {
             pos: *pos,
             kind: format!("building:{}", serde_plain(&b.kind)),
             label: None,
+            id: None,
         });
     }
     for c in w.creatures.values() {
@@ -40,6 +43,7 @@ fn collect_spectator_entities(w: &World) -> Vec<SpectatorEntity> {
             pos: c.pos,
             kind: format!("creature:{}", serde_plain(&c.kind)),
             label: Some(format!("hp{}", c.hp)),
+            id: Some(c.id),
         });
     }
     out
