@@ -410,21 +410,45 @@ impl World {
         let from = agent.pos;
         let to = from.step(dir);
 
-        let walkable = self.grid.get(to).map(|t| t.is_walkable()).unwrap_or(false);
-        let occupied_by_agent = self.agents.values().any(|a| a.pos == to && a.id != aid);
-        let blocked_by_building = self.buildings.contains_key(&to);
-
-        if !walkable {
+        // 注意：creature 不挡路（走过它会同 tick 被攻击/或站到一起）。
+        // reason 字段格式："blocked_by_tile:<kind>" / "blocked_by_agent:<id>"
+        // / "blocked_by_building:<kind>" / "blocked_by_oob" —— 让调用方能精确
+        // 定位"视野空但 blocked"的真正原因。
+        let tile = self.grid.get(to);
+        if tile.is_none() {
             self.pending_events.push(TickEvent::AgentMoveFailed {
                 agent: aid,
-                reason: "blocked".into(),
+                reason: "blocked_by_oob".into(),
             });
             return;
         }
-        if occupied_by_agent || blocked_by_building {
+        let tile = tile.unwrap();
+        if !tile.is_walkable() {
+            let kind = serde_json::to_value(tile.kind)
+                .ok()
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| "unknown".into());
             self.pending_events.push(TickEvent::AgentMoveFailed {
                 agent: aid,
-                reason: "occupied".into(),
+                reason: format!("blocked_by_tile:{}", kind),
+            });
+            return;
+        }
+        if let Some(other) = self.agents.values().find(|a| a.pos == to && a.id != aid) {
+            self.pending_events.push(TickEvent::AgentMoveFailed {
+                agent: aid,
+                reason: format!("blocked_by_agent:{}", other.id.0),
+            });
+            return;
+        }
+        if let Some(b) = self.buildings.get(&to) {
+            let kind = serde_json::to_value(b.kind)
+                .ok()
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| "unknown".into());
+            self.pending_events.push(TickEvent::AgentMoveFailed {
+                agent: aid,
+                reason: format!("blocked_by_building:{}", kind),
             });
             return;
         }
@@ -1211,6 +1235,113 @@ mod tests {
             },
         )]);
         assert!(!w.creatures.contains_key(&cid), "rabbit should be dead");
+    }
+
+    #[test]
+    fn move_failed_reason_specifies_tile_kind() {
+        // 移到山/深水 tile，reason 应当是 "blocked_by_tile:mountain" 之类
+        let mut w = World::bootstrap(7);
+        let id = w.join("alice".into()).unwrap();
+        let here = w.agents[&id].pos;
+        // 找一个邻接的不可走 tile，方向 = 那个方向
+        let mut blocked_dir = None;
+        let mut blocked_kind = None;
+        for d in Direction::ALL {
+            let t = here.step(d);
+            if let Some(tile) = w.grid.get(t) {
+                if !tile.is_walkable() {
+                    blocked_dir = Some(d);
+                    blocked_kind = Some(tile.kind);
+                    break;
+                }
+            } else {
+                // out of bounds 邻位
+                blocked_dir = Some(d);
+                blocked_kind = None;
+                break;
+            }
+        }
+        let Some(dir) = blocked_dir else {
+            return; // seed-dependent，没找到不可走邻位就跳过
+        };
+        let events = w.step(vec![(id.clone(), Action::Move { dir })]);
+        let reason = events.iter().find_map(|e| match e {
+            TickEvent::AgentMoveFailed { reason, .. } => Some(reason.clone()),
+            _ => None,
+        });
+        let reason = reason.expect("expected AgentMoveFailed");
+        if let Some(kind) = blocked_kind {
+            let expected_suffix = serde_json::to_value(kind)
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_string();
+            assert_eq!(
+                reason,
+                format!("blocked_by_tile:{}", expected_suffix),
+                "reason 应包含具体 tile kind"
+            );
+        } else {
+            assert_eq!(reason, "blocked_by_oob");
+        }
+    }
+
+    #[test]
+    fn move_failed_reason_specifies_agent_id_when_occupied() {
+        let mut w = World::bootstrap(7);
+        let alice = w.join("alice".into()).unwrap();
+        let bob = w.join("bob".into()).unwrap();
+        // 把 bob 强制挪到 alice 邻位
+        let here = w.agents[&alice].pos;
+        let mut placed_dir = None;
+        for d in Direction::ALL {
+            let t = here.step(d);
+            if w.grid.get(t).map(|x| x.is_walkable()).unwrap_or(false) {
+                w.agents.get_mut(&bob).unwrap().pos = t;
+                placed_dir = Some(d);
+                break;
+            }
+        }
+        let dir = placed_dir.expect("no walkable neighbor");
+        let events = w.step(vec![(alice.clone(), Action::Move { dir })]);
+        let reason = events.iter().find_map(|e| match e {
+            TickEvent::AgentMoveFailed { reason, .. } => Some(reason.clone()),
+            _ => None,
+        });
+        let reason = reason.expect("expected AgentMoveFailed");
+        assert_eq!(reason, format!("blocked_by_agent:{}", bob.0));
+    }
+
+    #[test]
+    fn move_failed_reason_specifies_building_kind() {
+        let mut w = World::bootstrap(7);
+        let id = w.join("alice".into()).unwrap();
+        let here = w.agents[&id].pos;
+        let mut placed_dir = None;
+        for d in Direction::ALL {
+            let t = here.step(d);
+            if w.grid.get(t).map(|x| x.is_walkable()).unwrap_or(false)
+                && !w.entities.contains_key(&t)
+            {
+                w.buildings.insert(
+                    t,
+                    crate::Building {
+                        kind: crate::BuildingKind::Campfire,
+                        placed_by: id.clone(),
+                        placed_at_tick: 0,
+                    },
+                );
+                placed_dir = Some(d);
+                break;
+            }
+        }
+        let dir = placed_dir.expect("no walkable neighbor");
+        let events = w.step(vec![(id.clone(), Action::Move { dir })]);
+        let reason = events.iter().find_map(|e| match e {
+            TickEvent::AgentMoveFailed { reason, .. } => Some(reason.clone()),
+            _ => None,
+        });
+        assert_eq!(reason.unwrap(), "blocked_by_building:campfire");
     }
 
     #[test]

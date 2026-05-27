@@ -143,7 +143,20 @@ def lingyuan_act(action: dict[str, Any]) -> dict[str, Any]:
     同 tick 内若已有 action 排队，返回 HTTP 409 + {accepted: false,
     reason: "already_queued", existing_action, will_resolve_at_tick}——本工具
     把它转成 {ok: false, already_queued: true, ...}。规则：等到
-    will_resolve_at_tick 落地后再发下一个动作；不要在同 tick 内连发。"""
+    will_resolve_at_tick 落地后再发下一个动作；不要在同 tick 内连发。
+
+    动作"落地是否成功"不在响应里，要去下一个 observe 看 recent_events。失败
+    事件常见 reason 格式：
+      - agent_move_failed: blocked_by_tile:<kind> | blocked_by_agent:<id>
+        | blocked_by_building:<kind> | blocked_by_oob
+        （注意：creature 不挡路，走过会被同 tick 攻击但移动成功）
+      - agent_eat_failed: "<Item> not food" / "no <Item> in inventory"
+      - agent_craft_failed: "unknown recipe" / "station not nearby" / "missing <Item>"
+      - agent_place_failed: "out of range" / "tile occupied" / "tile not walkable" / ...
+      - agent_pick_up_failed: "out of range" / "no item drop at pos" / "inventory full"
+      - agent_drop_failed: "inventory has fewer than N <Item>"
+      - agent_gather_failed: "out of range" / "no harvestable" / "inventory full"
+      - agent_attack_failed: 距离/目标问题"""
     t = _load_token()
     if t is None:
         return {"ok": False, "error": "未注册，先 lingyuan_join"}
