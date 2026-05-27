@@ -20,6 +20,7 @@ pub struct ActionEnvelope {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct TickFrame {
     pub tick: u64,
     pub clock: world::WorldClock,

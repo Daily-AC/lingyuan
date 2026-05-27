@@ -360,6 +360,7 @@ fn move_toward(from: (i32, i32), to: (i32, i32)) -> serde_json::Value {
     serde_json::json!({"kind":"move","data":{"dir":dir}})
 }
 
+#[allow(dead_code)]
 fn random_walk() -> serde_json::Value {
     let mut rng = rand::thread_rng();
     let dir = DIRS.choose(&mut rng).copied().unwrap_or("north");
