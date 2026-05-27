@@ -79,17 +79,32 @@ fn decide(obs: &serde_json::Value) -> serde_json::Value {
         .unwrap_or_default();
     let entities = obs["visible_entities"].as_array();
 
-    // 1. 受击/相邻 hostile？反击
+    // 1. hp 低 + 视野内有 hostile → 逃
     if let Some(arr) = entities {
-        let nearest_hostile = arr
+        let hostiles: Vec<((i32, i32), i32)> = arr
             .iter()
             .filter(|e| e["kind"] == "creature" && e["hostile"].as_bool().unwrap_or(false))
-            .map(|e| (e, dist(my_pos, parse_pos(&e["pos"]))))
-            .filter(|(_, d)| *d <= 1)
-            .min_by_key(|(_, d)| *d);
-        if let Some((e, _)) = nearest_hostile {
-            let id = e["id"].as_u64().unwrap_or(0);
-            return attack_creature(id);
+            .map(|e| (parse_pos(&e["pos"]), dist(my_pos, parse_pos(&e["pos"]))))
+            .collect();
+        if hp < 40 {
+            if let Some((p, _)) = hostiles.iter().min_by_key(|(_, d)| *d) {
+                // 朝相反方向走一步
+                let opp = (my_pos.0 - p.0, my_pos.1 - p.1);
+                return move_toward(my_pos, (my_pos.0 + opp.0, my_pos.1 + opp.1));
+            }
+        }
+        // 相邻有 hostile 且 hp 够 → 反击
+        if hp >= 40 {
+            if let Some((e, _)) = arr
+                .iter()
+                .filter(|e| e["kind"] == "creature" && e["hostile"].as_bool().unwrap_or(false))
+                .map(|e| (e, dist(my_pos, parse_pos(&e["pos"]))))
+                .filter(|(_, d)| *d <= 1)
+                .min_by_key(|(_, d)| *d)
+            {
+                let id = e["id"].as_u64().unwrap_or(0);
+                return attack_creature(id);
+            }
         }
     }
 
@@ -186,8 +201,9 @@ fn random_walk_smart(my_pos: (i32, i32), obs: &serde_json::Value) -> serde_json:
                         let k = t["tile"]["kind"].as_str().unwrap_or("grass");
                         tile_walkable(k)
                     })
-                    .unwrap_or(true),
-                None => true,
+                    // 不在视野 = 出界 or 被遮挡，保守跳过
+                    .unwrap_or(false),
+                None => false,
             }
         })
         .collect();
