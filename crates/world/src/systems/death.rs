@@ -1,11 +1,13 @@
 use crate::{
     agent::{Agent, AgentId, AgentState, AgentStatus},
     coord::TileCoord,
+    creature::Creature,
     entity::Entity,
     event::TickEvent,
     gen,
     grid::Grid,
     item::ItemStack,
+    observation::VISION_RADIUS,
     tile::Tile,
 };
 use std::collections::BTreeMap;
@@ -62,12 +64,21 @@ pub fn handle_respawns(
     seed: u64,
     grid: &Grid<Tile>,
     agents: &mut BTreeMap<AgentId, Agent>,
+    creatures: &BTreeMap<u64, Creature>,
 ) -> Vec<TickEvent> {
     let mut events = Vec::new();
     for (id, a) in agents.iter_mut() {
         if let AgentState::Dying { revives_at_tick } = a.state {
             if tick >= revives_at_tick {
-                let pos = gen::find_safe_spawn(grid, seed ^ tick.wrapping_mul(0xABCD_1234));
+                // 避开 hostile 视野半径 + 远离死亡位置（避免反复送死）
+                let death_pos = a.pos;
+                let pos = gen::find_safe_spawn_avoiding(
+                    grid,
+                    creatures,
+                    seed ^ tick.wrapping_mul(0xABCD_1234) ^ hash_agent_id(id),
+                    Some(death_pos),
+                    VISION_RADIUS,
+                );
                 a.pos = pos;
                 a.status = AgentStatus::fresh();
                 a.state = AgentState::Alive;
@@ -80,6 +91,13 @@ pub fn handle_respawns(
         }
     }
     events
+}
+
+fn hash_agent_id(id: &AgentId) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    id.0.hash(&mut h);
+    h.finish()
 }
 
 fn nearby_slot(

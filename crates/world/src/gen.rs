@@ -1,5 +1,6 @@
-use crate::{Biome, Grid, Tile, TileCoord, TileKind};
+use crate::{Biome, Creature, Grid, Tile, TileCoord, TileKind};
 use noise::{NoiseFn, Perlin};
+use std::collections::BTreeMap;
 
 pub const WORLD_WIDTH: u16 = 80;
 pub const WORLD_HEIGHT: u16 = 80;
@@ -117,20 +118,70 @@ pub fn populate(grid: &Grid<Tile>, seed: u64) -> std::collections::BTreeMap<Tile
 }
 
 pub fn find_safe_spawn(grid: &Grid<Tile>, seed: u64) -> TileCoord {
+    find_safe_spawn_avoiding(grid, &BTreeMap::new(), seed, None, 0)
+}
+
+/// 找一个可走 tile 作为出生点，同时满足：
+/// - manhattan 距 `hostile_radius` 内没有任何 hostile creature（含 boss）
+/// - 若 `avoid` 给定，距其 ≥ `hostile_radius * 2` 远（防止反复送死同一片）
+///
+/// 最多尝试 2000 次；若实在找不到（地图被怪物洗了），退化为只要 walkable，
+/// 至少别让玩家卡在死亡循环。
+pub fn find_safe_spawn_avoiding(
+    grid: &Grid<Tile>,
+    creatures: &BTreeMap<u64, Creature>,
+    seed: u64,
+    avoid: Option<TileCoord>,
+    hostile_radius: u16,
+) -> TileCoord {
     use rand::{Rng, SeedableRng};
     let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed ^ 0xDEAD_BEEF);
+
+    let is_safe = |c: TileCoord| -> bool {
+        if hostile_radius == 0 {
+            return true;
+        }
+        for cr in creatures.values() {
+            if cr.kind.is_hostile() && c.manhattan(cr.pos) <= hostile_radius {
+                return false;
+            }
+        }
+        true
+    };
+    let is_far_enough = |c: TileCoord| -> bool {
+        match avoid {
+            Some(a) => c.manhattan(a) >= hostile_radius.max(1) * 2,
+            None => true,
+        }
+    };
+
+    // 先严格找：walkable + 远离 hostile + 远离 avoid
+    for _ in 0..2000 {
+        let x = rng.gen_range(0..WORLD_WIDTH) as i16;
+        let y = rng.gen_range(0..WORLD_HEIGHT) as i16;
+        let c = TileCoord::new(x, y);
+        if !grid.get(c).map(|t| t.is_walkable()).unwrap_or(false) {
+            continue;
+        }
+        if !is_safe(c) {
+            continue;
+        }
+        if !is_far_enough(c) {
+            continue;
+        }
+        return c;
+    }
+    // 二次放宽：放弃 avoid 距离，但仍避开 hostile
     for _ in 0..1000 {
         let x = rng.gen_range(0..WORLD_WIDTH) as i16;
         let y = rng.gen_range(0..WORLD_HEIGHT) as i16;
         let c = TileCoord::new(x, y);
-        if let Some(t) = grid.get(c) {
-            let t: &Tile = t;
-            if t.is_walkable() {
-                return c;
-            }
+        if grid.get(c).map(|t| t.is_walkable()).unwrap_or(false) && is_safe(c) {
+            return c;
         }
     }
-    TileCoord::new(WORLD_WIDTH as i16 / 2, WORLD_HEIGHT as i16 / 2)
+    // 兜底：随便给个 walkable
+    find_safe_spawn(grid, seed.wrapping_mul(0x9E37_79B1))
 }
 
 #[cfg(test)]
@@ -158,5 +209,41 @@ mod tests {
         let g = generate(1);
         assert_eq!(g.width, 80);
         assert_eq!(g.height, 80);
+    }
+
+    #[test]
+    fn safe_spawn_avoids_hostile_creature() {
+        use crate::creature::{Creature, CreatureKind};
+        let g = generate(123);
+        // 在 walkable 候选附近塞一只 boss
+        let walkable = find_safe_spawn(&g, 999);
+        let mut creatures = BTreeMap::new();
+        creatures.insert(
+            1,
+            Creature::new(1, CreatureKind::BossDujie, walkable, 0),
+        );
+        // 用很多不同 seed 探 50 次，每次出生点都得在 hostile_radius 之外
+        for s in 0..50u64 {
+            let c = find_safe_spawn_avoiding(&g, &creatures, s, None, 6);
+            assert!(
+                c.manhattan(walkable) > 6,
+                "spawn {:?} 距 boss {:?} 仅 {}, 应 > 6",
+                c, walkable, c.manhattan(walkable)
+            );
+        }
+    }
+
+    #[test]
+    fn safe_spawn_avoid_param_distances_from_death_pos() {
+        let g = generate(123);
+        let death = TileCoord::new(40, 40);
+        for s in 0..30u64 {
+            let c = find_safe_spawn_avoiding(&g, &BTreeMap::new(), s, Some(death), 6);
+            assert!(
+                c.manhattan(death) >= 12,
+                "spawn {:?} 距死亡点 {:?} 仅 {}, 应 ≥ 12",
+                c, death, c.manhattan(death)
+            );
+        }
     }
 }
