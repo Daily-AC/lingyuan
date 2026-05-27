@@ -128,7 +128,7 @@ def lingyuan_act(action: dict[str, Any]) -> dict[str, Any]:
 
     支持的 kind（完整 craft recipe 列表/inputs 见 lingyuan_world_info）：
       - move: data={dir: "north"|"south"|"east"|"west"}
-      - wait: data={}
+      - wait: (无 data 字段，发 {kind:"wait"} 即可；若带 data:{} server 会 422)
       - gather: data={target: {x, y}}      # manhattan ≤ 1
       - eat: data={item: "<snake_case_item>"}
       - craft: data={recipe: "<recipe_id>"}
@@ -215,7 +215,11 @@ def _render_markdown(obs: dict[str, Any]) -> str:
         if kind == "agent":
             parts.append(f"  - agent {e['name']} @({e['pos']['x']},{e['pos']['y']}) hp {e['hp']}")
         elif kind == "plant":
-            avail = "✓" if e.get("available") else "✗冷却"
+            if e.get("available"):
+                avail = "✓"
+            else:
+                cd = e.get("cooldown_remaining")
+                avail = f"✗冷却({cd}t 后可采)" if cd is not None else "✗冷却"
             parts.append(f"  - {e['species']} @({e['pos']['x']},{e['pos']['y']}) {avail}")
         elif kind == "item_drop":
             parts.append(f"  - drop {e['item']}×{e['n']} @({e['pos']['x']},{e['pos']['y']}) ttl {e['expires_in']}")
@@ -236,6 +240,23 @@ def _render_markdown(obs: dict[str, Any]) -> str:
         parts.append("**Mail**:")
         for m in mail:
             parts.append(f"  - {m['from']} (t{m['received_at_tick']}): {m['text']}")
+        parts.append("")
+    events = obs.get("recent_events", [])
+    if events:
+        parts.append("**Recent events (上一 tick 与你相关)**:")
+        for e in events:
+            kind = e.get("kind", "?")
+            data = e.get("data", {}) or {}
+            # 失败类高亮 reason，让 agent 一眼看出"为什么动作没生效"
+            if kind.endswith("_failed"):
+                parts.append(f"  - ⚠ {kind}: {data.get('reason', '?')}")
+            else:
+                # 紧凑显示成功事件：item/n/at 等关键字段
+                summary = ", ".join(
+                    f"{k}={v}" for k, v in data.items()
+                    if k not in ("agent", "attacker", "target") and not isinstance(v, dict)
+                )
+                parts.append(f"  - {kind}: {summary}" if summary else f"  - {kind}")
     return "\n".join(parts)
 
 

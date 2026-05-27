@@ -40,6 +40,10 @@ pub enum TickEvent {
         hp_gain: i16,
         hunger_gain: i16,
     },
+    AgentEatFailed {
+        agent: AgentId,
+        reason: String,
+    },
     AgentCrafted {
         agent: AgentId,
         recipe: String,
@@ -53,15 +57,27 @@ pub enum TickEvent {
         building: String,
         at: TileCoord,
     },
+    AgentPlaceFailed {
+        agent: AgentId,
+        reason: String,
+    },
     AgentPickedUp {
         agent: AgentId,
         item: ItemKind,
         n: u16,
     },
+    AgentPickUpFailed {
+        agent: AgentId,
+        reason: String,
+    },
     AgentDropped {
         agent: AgentId,
         item: ItemKind,
         n: u16,
+    },
+    AgentDropFailed {
+        agent: AgentId,
+        reason: String,
     },
     AgentDied {
         agent: AgentId,

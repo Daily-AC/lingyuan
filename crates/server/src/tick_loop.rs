@@ -70,11 +70,15 @@ fn event_involves_agent(e: &world::TickEvent, aid: &world::AgentId) -> bool {
         | AgentGathered { agent, .. }
         | AgentGatherFailed { agent, .. }
         | AgentAte { agent, .. }
+        | AgentEatFailed { agent, .. }
         | AgentCrafted { agent, .. }
         | AgentCraftFailed { agent, .. }
         | AgentPlaced { agent, .. }
+        | AgentPlaceFailed { agent, .. }
         | AgentPickedUp { agent, .. }
+        | AgentPickUpFailed { agent, .. }
         | AgentDropped { agent, .. }
+        | AgentDropFailed { agent, .. }
         | AgentDied { agent, .. }
         | AgentRespawned { agent, .. }
         | AgentWroteSign { agent, .. }
@@ -123,10 +127,11 @@ pub async fn run(state: AppState) {
         let events = w.step(actions);
 
         // 把每个 agent 相关的事件落到共享缓存里，observe 时读出来。
-        // 完整覆写而不是追加：只暴露"上一 tick 发生的事"，避免无限堆。
+        // 只在该 agent 本 tick 有新事件时覆写——否则保留上一组，免得 agent 观察晚一
+        // 两 tick 就丢了刚发生的失败原因。如果 agent 退场，next tick 自然清掉。
         {
             let mut by_agent = state.recent_events_by_agent.lock().await;
-            by_agent.clear();
+            by_agent.retain(|aid, _| w.agents.contains_key(aid));
             for aid in w.agents.keys() {
                 let rel: Vec<world::TickEvent> = events
                     .iter()
