@@ -132,6 +132,10 @@ async fn main() -> anyhow::Result<()> {
             let filter = kinds.map(|s| s.split(',').map(|t| t.trim().to_string()).collect::<Vec<_>>());
             replay::run(std::path::Path::new(&db), from, to, filter, summary)?;
         }
+        Cmd::Watch { db, kinds, only_new } => {
+            let filter = kinds.map(|s| s.split(',').map(|t| t.trim().to_string()).collect::<Vec<_>>());
+            replay::watch(std::path::Path::new(&db), filter, only_new)?;
+        }
         Cmd::Demo {
             name,
             server,
