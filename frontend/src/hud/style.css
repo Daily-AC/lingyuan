@@ -368,6 +368,12 @@ button.ghost:hover {
   letter-spacing: 0.02em;
 }
 
+.event-focused {
+  background: rgba(217, 164, 65, 0.14);
+  box-shadow: inset 2px 0 0 var(--luori);
+  padding-left: 8px;
+}
+
 ::-webkit-scrollbar {
   width: 8px;
 }

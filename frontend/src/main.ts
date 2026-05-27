@@ -173,18 +173,36 @@ function describeEvent(ev: TickEvent): string {
   }
 }
 
-function pushEvents(tick: number, events: TickEvent[]): void {
+function eventInvolves(ev: TickEvent, agentName: string, agentId: string): boolean {
+  const data = (ev as { data: Record<string, unknown> }).data;
+  if (data === null || data === undefined) return false;
+  for (const k of ['agent', 'attacker', 'target', 'from', 'to', 'slayer']) {
+    const v = data[k];
+    if (typeof v === 'string' && (v === agentName || v === agentId)) return true;
+  }
+  return false;
+}
+
+function pushEvents(tick: number, events: TickEvent[], focusedAgent: { id: string; name: string } | null): void {
   for (const e of events) {
     recentEvents.unshift({ tick, event: e });
   }
   if (recentEvents.length > MAX_EVENTS) {
     recentEvents.length = MAX_EVENTS;
   }
+  rerenderEvents(focusedAgent);
+}
+
+function rerenderEvents(focusedAgent: { id: string; name: string } | null): void {
   const list = el<HTMLUListElement>('event-list');
   list.replaceChildren();
   for (const entry of recentEvents) {
     const li = document.createElement('li');
-    li.className = `event-row event-${entry.event.kind}`;
+    let cls = `event-row event-${entry.event.kind}`;
+    if (focusedAgent !== null && eventInvolves(entry.event, focusedAgent.name, focusedAgent.id)) {
+      cls += ' event-focused';
+    }
+    li.className = cls;
     const t = document.createElement('span');
     t.className = 'event-tick';
     t.textContent = `t${entry.tick}`;
@@ -225,6 +243,9 @@ async function main(): Promise<void> {
     renderAgents(lastAgents, stage.focusedId(), pickAgent);
     renderFocusHud(lastAgents, stage.focusedId());
     minimap.render(lastAgents, stage.focusedId());
+    const fid = stage.focusedId();
+    const fa = fid !== null ? lastAgents.find((x) => x.id === fid) : undefined;
+    rerenderEvents(fa !== undefined ? { id: fa.id, name: fa.name } : null);
     refreshFocusBtn();
   };
 
@@ -233,6 +254,7 @@ async function main(): Promise<void> {
     renderAgents(lastAgents, null, pickAgent);
     renderFocusHud(lastAgents, null);
     minimap.render(lastAgents, null);
+    rerenderEvents(null);
     refreshFocusBtn();
   });
 
@@ -262,7 +284,10 @@ async function main(): Promise<void> {
       renderClock(tick);
       renderAgents(agents, stage.focusedId(), pickAgent);
       renderFocusHud(agents, stage.focusedId());
-      pushEvents(tick, events);
+      const fid = stage.focusedId();
+      const fagent = fid !== null ? agents.find((x) => x.id === fid) : undefined;
+      const focusedAgent = fagent !== undefined ? { id: fagent.id, name: fagent.name } : null;
+      pushEvents(tick, events, focusedAgent);
       stage.pushEvents(events);
       beat();
     }
