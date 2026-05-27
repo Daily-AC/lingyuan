@@ -94,17 +94,17 @@ pub fn populate(grid: &Grid<Tile>, seed: u64) -> std::collections::BTreeMap<Tile
     let mut out = std::collections::BTreeMap::new();
     for (pos, t) in grid.iter() {
         let kind: Option<PlantKind> = match t.kind {
-            TileKind::BambooForest if rng.gen_bool(0.5) => Some(PlantKind::BambooStalk),
-            TileKind::PineForest if rng.gen_bool(0.4) => Some(PlantKind::PineLog),
-            TileKind::Stone if rng.gen_bool(0.35) => Some(PlantKind::StoneChunk),
-            TileKind::Sand if rng.gen_bool(0.2) => Some(PlantKind::FlintChunk),
-            TileKind::Reed if rng.gen_bool(0.5) => Some(PlantKind::Reed),
+            TileKind::BambooForest if rng.gen_bool(0.18) => Some(PlantKind::BambooStalk),
+            TileKind::PineForest if rng.gen_bool(0.15) => Some(PlantKind::PineLog),
+            TileKind::Stone if rng.gen_bool(0.12) => Some(PlantKind::StoneChunk),
+            TileKind::Sand if rng.gen_bool(0.06) => Some(PlantKind::FlintChunk),
+            TileKind::Reed if rng.gen_bool(0.18) => Some(PlantKind::Reed),
             TileKind::Grass => {
-                if rng.gen_bool(0.06) { Some(PlantKind::Mushroom) }
-                else if rng.gen_bool(0.05) { Some(PlantKind::RedBerry) }
-                else if rng.gen_bool(0.04) { Some(PlantKind::Vine) }
-                else if rng.gen_bool(0.02) { Some(PlantKind::ClayLump) }
-                else if rng.gen_bool(0.01) { Some(PlantKind::Lingzhi) }
+                if rng.gen_bool(0.022) { Some(PlantKind::Mushroom) }
+                else if rng.gen_bool(0.018) { Some(PlantKind::RedBerry) }
+                else if rng.gen_bool(0.013) { Some(PlantKind::Vine) }
+                else if rng.gen_bool(0.006) { Some(PlantKind::ClayLump) }
+                else if rng.gen_bool(0.003) { Some(PlantKind::Lingzhi) }
                 else { None }
             }
             _ => None,

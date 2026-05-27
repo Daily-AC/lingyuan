@@ -26,12 +26,20 @@ function renderClock(tick: number): void {
     `第 ${year} 年 · ${seasonLabel} · 第 ${day + 1} 日 · 刻 ${tickInDay} / 72 · tick ${tick}`;
 }
 
-function renderAgents(agents: SpectatorAgent[]): void {
+function renderAgents(
+  agents: SpectatorAgent[],
+  selectedId: string | null,
+  onPick: (id: string) => void,
+): void {
   const list = el<HTMLUListElement>('agent-list');
   list.replaceChildren();
   for (const a of agents) {
     const li = document.createElement('li');
-    li.className = `agent-row agent-state-${a.state}`;
+    li.className = `agent-row agent-state-${a.state}` + (a.id === selectedId ? ' selected' : '');
+    li.dataset.agentId = a.id;
+    li.tabIndex = 0;
+    li.role = 'button';
+    li.addEventListener('click', () => onPick(a.id));
     const name = document.createElement('span');
     name.className = 'agent-name';
     name.textContent = a.name;
@@ -140,21 +148,52 @@ async function main(): Promise<void> {
   const stageEl = el<HTMLElement>('stage');
   await stage.mount(stageEl);
 
+  let lastAgents: SpectatorAgent[] = [];
+
+  const focusBtn = el<HTMLButtonElement>('focus-clear');
+  const refreshFocusBtn = () => {
+    focusBtn.hidden = !stage.isFocused();
+  };
+
+  const pickAgent = (id: string) => {
+    const cur = stage.focusedId();
+    const next = cur === id ? null : id;
+    stage.focusAgent(next);
+    renderAgents(lastAgents, stage.focusedId(), pickAgent);
+    refreshFocusBtn();
+  };
+
+  focusBtn.addEventListener('click', () => {
+    stage.focusAgent(null);
+    renderAgents(lastAgents, null, pickAgent);
+    refreshFocusBtn();
+  });
+
+  const pulseEl = el<HTMLSpanElement>('tick-pulse');
+  const beat = () => {
+    pulseEl.classList.add('beat');
+    setTimeout(() => pulseEl.classList.remove('beat'), 180);
+  };
+
   const onMsg = (msg: ServerMsg): void => {
     if (msg.kind === 'snapshot') {
       stage.setGrid(msg.grid_width, msg.grid_height, msg.tiles);
       stage.setEntities(msg.entities);
       stage.setAgents(msg.agents);
+      lastAgents = msg.agents;
       renderClock(msg.tick);
-      renderAgents(msg.agents);
+      renderAgents(msg.agents, stage.focusedId(), pickAgent);
     } else {
       const { tick, agents, entities, events } = msg.view;
       stage.setEntities(entities);
       stage.setAgents(agents);
+      lastAgents = agents;
       renderClock(tick);
-      renderAgents(agents);
+      renderAgents(agents, stage.focusedId(), pickAgent);
       pushEvents(tick, events);
+      beat();
     }
+    refreshFocusBtn();
   };
 
   connect('ws://127.0.0.1:7777/ws/spectator', onMsg);
