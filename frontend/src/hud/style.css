@@ -173,22 +173,24 @@ body {
 }
 
 /* 昼夜全局色调（克制版，HUD 仍可读）*/
-#stage[data-phase="night"] {
+/* 滤色只作用于 canvas，HUD 永远清晰 */
+#stage[data-phase="night"] > canvas {
   filter: brightness(0.7) saturate(0.85) hue-rotate(-12deg);
 }
-#stage[data-phase="dusk"], #stage[data-phase="dawn"] {
+#stage[data-phase="dusk"] > canvas,
+#stage[data-phase="dawn"] > canvas {
   filter: brightness(0.86) saturate(0.92) sepia(0.1);
 }
-#stage[data-season="qiu"] {
+#stage[data-season="qiu"] > canvas {
   filter: brightness(0.96) sepia(0.12) hue-rotate(-6deg);
 }
-#stage[data-season="dong"] {
+#stage[data-season="dong"] > canvas {
   filter: brightness(0.93) saturate(0.75) hue-rotate(12deg);
 }
-#stage[data-phase="night"][data-season="dong"] {
+#stage[data-phase="night"][data-season="dong"] > canvas {
   filter: brightness(0.58) saturate(0.65) hue-rotate(8deg);
 }
-#stage {
+#stage > canvas {
   transition: filter 0.8s ease;
 }
 

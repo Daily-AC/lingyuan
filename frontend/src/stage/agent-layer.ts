@@ -28,10 +28,17 @@ interface AgentRenderState {
   container: Container;
   groundHalo: Graphics;
   spriteOrDot: Sprite | Graphics;
-  baseSprite: Sprite | null; // 真 sprite，做 idle bob 时移动它
+  baseSprite: Sprite | null;
   selectionRing: Graphics;
   baseY: number;
+  prevX: number;
+  prevY: number;
+  targetX: number;
+  targetY: number;
+  lerpStartMs: number;
 }
+
+const LERP_MS = 220;
 
 export class AgentLayer {
   readonly container: Container;
@@ -171,6 +178,10 @@ export class AgentLayer {
     container.addChild(pill);
     container.addChild(labelText);
 
+    const cx = a.pos.x * TILE_SIZE + TILE_SIZE / 2;
+    const cy = a.pos.y * TILE_SIZE + TILE_SIZE / 2;
+    container.x = cx;
+    container.y = cy;
     return {
       agent: a,
       container,
@@ -179,22 +190,43 @@ export class AgentLayer {
       baseSprite,
       selectionRing,
       baseY: 0,
+      prevX: cx,
+      prevY: cy,
+      targetX: cx,
+      targetY: cy,
+      lerpStartMs: performance.now(),
     };
   }
 
   private position(st: AgentRenderState): void {
-    const cx = st.agent.pos.x * TILE_SIZE + TILE_SIZE / 2;
-    const cy = st.agent.pos.y * TILE_SIZE + TILE_SIZE / 2;
-    st.container.x = cx;
-    st.container.y = cy;
-    st.baseY = 0;
-    // dying / meditating 半透
+    const tx = st.agent.pos.x * TILE_SIZE + TILE_SIZE / 2;
+    const ty = st.agent.pos.y * TILE_SIZE + TILE_SIZE / 2;
+    if (tx !== st.targetX || ty !== st.targetY) {
+      // 起新 lerp：prev = 当前位置（可能 lerp 中），target = 新
+      st.prevX = st.container.x;
+      st.prevY = st.container.y;
+      st.targetX = tx;
+      st.targetY = ty;
+      st.lerpStartMs = performance.now();
+    }
     st.container.alpha = st.agent.state === 'alive' ? 1 : 0.55;
   }
 
   private animate = (): void => {
-    const t = performance.now() / 1000;
+    const now = performance.now();
+    const t = now / 1000;
     for (const [aid, s] of this.states) {
+      // lerp 平滑移动
+      const dt = now - s.lerpStartMs;
+      if (dt < LERP_MS) {
+        const p = dt / LERP_MS;
+        const ease = p * (2 - p); // ease-out
+        s.container.x = s.prevX + (s.targetX - s.prevX) * ease;
+        s.container.y = s.prevY + (s.targetY - s.prevY) * ease;
+      } else {
+        s.container.x = s.targetX;
+        s.container.y = s.targetY;
+      }
       // idle bob: 浮动 ±1.5 px
       const phase = hashPhase(aid) * Math.PI * 2;
       const bob = Math.sin(t * 1.6 + phase) * 1.5;
