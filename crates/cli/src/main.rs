@@ -2,6 +2,7 @@ mod client;
 mod commands;
 mod demo_bot;
 mod render;
+mod replay;
 mod token_store;
 
 use anyhow::Context;
@@ -120,6 +121,16 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Clear => {
             token_store::clear()?;
             println!("cleared");
+        }
+        Cmd::Replay {
+            db,
+            from,
+            to,
+            kinds,
+            summary,
+        } => {
+            let filter = kinds.map(|s| s.split(',').map(|t| t.trim().to_string()).collect::<Vec<_>>());
+            replay::run(std::path::Path::new(&db), from, to, filter, summary)?;
         }
         Cmd::Demo {
             name,
