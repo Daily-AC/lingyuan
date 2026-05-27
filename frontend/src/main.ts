@@ -1,4 +1,5 @@
 import { WorldStage } from './stage/world-stage';
+import { MiniMap } from './stage/minimap';
 import { connect } from './ws';
 import type { ServerMsg, SpectatorAgent, TickEvent } from './types';
 
@@ -196,6 +197,9 @@ async function main(): Promise<void> {
   const stageEl = el<HTMLElement>('stage');
   await stage.mount(stageEl);
 
+  const minimap = new MiniMap();
+  el('minimap-mount').appendChild(minimap.el);
+
   let lastAgents: SpectatorAgent[] = [];
 
   const focusBtn = el<HTMLButtonElement>('focus-clear');
@@ -209,6 +213,7 @@ async function main(): Promise<void> {
     stage.focusAgent(next);
     renderAgents(lastAgents, stage.focusedId(), pickAgent);
     renderFocusHud(lastAgents, stage.focusedId());
+    minimap.render(lastAgents, stage.focusedId());
     refreshFocusBtn();
   };
 
@@ -216,6 +221,7 @@ async function main(): Promise<void> {
     stage.focusAgent(null);
     renderAgents(lastAgents, null, pickAgent);
     renderFocusHud(lastAgents, null);
+    minimap.render(lastAgents, null);
     refreshFocusBtn();
   });
 
@@ -230,6 +236,8 @@ async function main(): Promise<void> {
       stage.setGrid(msg.grid_width, msg.grid_height, msg.tiles);
       stage.setEntities(msg.entities);
       stage.setAgents(msg.agents);
+      minimap.setGrid(msg.grid_width, msg.grid_height, msg.tiles);
+      minimap.render(msg.agents, stage.focusedId());
       lastAgents = msg.agents;
       renderClock(msg.tick);
       renderAgents(msg.agents, stage.focusedId(), pickAgent);
@@ -238,11 +246,13 @@ async function main(): Promise<void> {
       const { tick, agents, entities, events } = msg.view;
       stage.setEntities(entities);
       stage.setAgents(agents);
+      minimap.render(agents, stage.focusedId());
       lastAgents = agents;
       renderClock(tick);
       renderAgents(agents, stage.focusedId(), pickAgent);
       renderFocusHud(agents, stage.focusedId());
       pushEvents(tick, events);
+      stage.pushEvents(events);
       beat();
     }
     refreshFocusBtn();

@@ -50,7 +50,9 @@ pub struct SpectatorAgent {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SpectatorEntity {
     pub pos: world::TileCoord,
-    /// 格式: "plant:mushroom" / "drop:stone" / "building:campfire"
+    /// 格式: "plant:mushroom" / "drop:stone" / "building:campfire" / "creature:wolf"
     pub kind: String,
     pub label: Option<String>,
+    /// 实体 ID（创造物）— 用于伤害浮字定位
+    pub id: Option<u64>,
 }
