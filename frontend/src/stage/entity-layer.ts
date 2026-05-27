@@ -1,8 +1,8 @@
-import { Container, Graphics, Text } from 'pixi.js';
+import { Container, Graphics, Sprite, Text } from 'pixi.js';
 import type { SpectatorEntity } from '../types';
+import { getCached, tryLoad } from './sprite-cache';
 
 // kind 字符串 -> 颜色 / 形状
-// "plant:mushroom" -> ['plant','mushroom']
 const PLANT_COLOR: Record<string, number> = {
   bamboo_stalk: 0x6b9d6f,
   pine_log: 0x3e5e3e,
@@ -52,53 +52,74 @@ const CREATURE_COLOR: Record<string, number> = {
 
 export class EntityLayer {
   container = new Container();
+  /** 触发外层重画的回调；sprite 异步加载完成后调用 */
+  private redrawHook: (() => void) | null = null;
+
+  setRedrawHook(fn: () => void) {
+    this.redrawHook = fn;
+  }
 
   render(entities: SpectatorEntity[], tileSize: number) {
     this.container.removeChildren();
-    const g = new Graphics();
+    const fallbackG = new Graphics();
+    let usedFallback = false;
     for (const e of entities) {
       const [category, sub] = e.kind.split(':');
       const cx = e.pos.x * tileSize + tileSize / 2;
       const cy = e.pos.y * tileSize + tileSize / 2;
-      let color = 0xff00ff;
+      // 优先尝试 sprite
+      const tex = getCached(category, sub);
+      if (tex !== null) {
+        const s = new Sprite(tex);
+        s.anchor.set(0.5);
+        s.x = cx;
+        s.y = cy;
+        s.width = tileSize;
+        s.height = tileSize;
+        this.container.addChild(s);
+        continue;
+      }
+      // 触发异步加载（一次性，下次重画会用上）
+      if (this.redrawHook !== null) {
+        tryLoad(category, sub, this.redrawHook);
+      }
+      // 兜底：色块
+      usedFallback = true;
       if (category === 'plant') {
-        color = PLANT_COLOR[sub] ?? 0x90c090;
-        g.circle(cx, cy, tileSize * 0.25).fill(color);
+        fallbackG.circle(cx, cy, tileSize * 0.25).fill(PLANT_COLOR[sub] ?? 0x90c090);
       } else if (category === 'drop') {
-        color = DROP_COLOR[sub] ?? 0xf2efe4;
-        g.rect(cx - tileSize * 0.3, cy - tileSize * 0.3, tileSize * 0.6, tileSize * 0.6).fill(color);
-        g.rect(cx - tileSize * 0.3, cy - tileSize * 0.3, tileSize * 0.6, tileSize * 0.6).stroke({
-          color: 0x2a2826,
-          width: 1,
-        });
+        const color = DROP_COLOR[sub] ?? 0xf2efe4;
+        fallbackG
+          .rect(cx - tileSize * 0.3, cy - tileSize * 0.3, tileSize * 0.6, tileSize * 0.6)
+          .fill(color);
+        fallbackG
+          .rect(cx - tileSize * 0.3, cy - tileSize * 0.3, tileSize * 0.6, tileSize * 0.6)
+          .stroke({ color: 0x2a2826, width: 1 });
       } else if (category === 'building') {
-        color = BUILDING_COLOR[sub] ?? 0xd9a441;
+        const color = BUILDING_COLOR[sub] ?? 0xd9a441;
         const r = tileSize * 0.42;
-        g.rect(cx - r, cy - r, r * 2, r * 2).fill(color);
-        g.rect(cx - r, cy - r, r * 2, r * 2).stroke({ color: 0xf2efe4, width: 1 });
+        fallbackG.rect(cx - r, cy - r, r * 2, r * 2).fill(color);
+        fallbackG.rect(cx - r, cy - r, r * 2, r * 2).stroke({ color: 0xf2efe4, width: 1 });
       } else if (category === 'creature') {
-        color = CREATURE_COLOR[sub] ?? 0xb83a2e;
+        const color = CREATURE_COLOR[sub] ?? 0xb83a2e;
         const r = tileSize * 0.38;
-        // 菱形：旋转 45° 方形
-        const cont = new Graphics();
-        cont.poly([cx, cy - r, cx + r, cy, cx, cy + r, cx - r, cy]).fill(color);
-        cont.poly([cx, cy - r, cx + r, cy, cx, cy + r, cx - r, cy]).stroke({
-          color: 0x2a2826,
-          width: 1,
-        });
-        this.container.addChild(cont);
+        fallbackG.poly([cx, cy - r, cx + r, cy, cx, cy + r, cx - r, cy]).fill(color);
+        fallbackG
+          .poly([cx, cy - r, cx + r, cy, cx, cy + r, cx - r, cy])
+          .stroke({ color: 0x2a2826, width: 1 });
       }
     }
-    this.container.addChild(g);
-    // 可选 label（如 "×3"）
+    if (usedFallback) {
+      this.container.addChild(fallbackG);
+    }
     for (const e of entities) {
-      if (!e.label) continue;
+      if (e.label === null) continue;
       const t = new Text({
         text: e.label,
         style: { fontSize: 7, fill: 0xf2efe4, fontFamily: 'monospace' },
       });
-      t.x = e.pos.x * tileSize + tileSize * 0.5;
-      t.y = e.pos.y * tileSize + tileSize * 0.2;
+      t.x = e.pos.x * tileSize + tileSize * 0.55;
+      t.y = e.pos.y * tileSize + tileSize * 0.05;
       this.container.addChild(t);
     }
   }

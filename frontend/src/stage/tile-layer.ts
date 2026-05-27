@@ -1,7 +1,7 @@
 import { Container, Graphics } from 'pixi.js';
 import type { TileKind, TileMsg } from '../types';
 
-export const TILE_SIZE = 12;
+export const TILE_SIZE = 32;
 
 const TILE_COLORS: Record<TileKind, number> = {
   grass: 0x5c8c6a,

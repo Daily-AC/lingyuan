@@ -3,3 +3,10 @@ node_modules/
 data/
 dist/
 .DS_Store
+*.log
+.venv/
+__pycache__/
+.lingyuan/
+
+# sprite raw（gpt-image-2 output，2-3MB/张，按需再生）
+assets/sprites_raw/
