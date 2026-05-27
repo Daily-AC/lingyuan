@@ -16,9 +16,18 @@ use crate::client::Client;
 
 const DIRS: [&str; 4] = ["north", "south", "east", "west"];
 
+struct BotState {
+    last_sign_tick: u64,
+    own_name: String,
+}
+
 pub async fn run(client: Client, period_ms: u64, verbose: bool) -> Result<()> {
     let mut tick_seen: u64 = 0;
     let mut consecutive_fails: u32 = 0;
+    let mut bot = BotState {
+        last_sign_tick: 0,
+        own_name: String::new(),
+    };
     loop {
         let obs: serde_json::Value = match client.observe().await {
             Ok(v) => v,
@@ -33,6 +42,12 @@ pub async fn run(client: Client, period_ms: u64, verbose: bool) -> Result<()> {
             }
         };
         consecutive_fails = 0;
+        if bot.own_name.is_empty() {
+            bot.own_name = obs["self"]["name"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+        }
         let t = obs["tick"].as_u64().unwrap_or(0);
         if t == tick_seen {
             tokio::time::sleep(Duration::from_millis(period_ms / 4)).await;
@@ -40,7 +55,7 @@ pub async fn run(client: Client, period_ms: u64, verbose: bool) -> Result<()> {
         }
         tick_seen = t;
 
-        let action = decide(&obs);
+        let action = decide_with_state(&obs, &mut bot, t);
         if verbose {
             let kind = action["kind"].as_str().unwrap_or("?");
             let hunger = obs["self"]["status"]["hunger"].as_i64().unwrap_or(0);
@@ -52,6 +67,74 @@ pub async fn run(client: Client, period_ms: u64, verbose: bool) -> Result<()> {
             Err(e) => eprintln!("[demo] act err: {e}"),
         }
         tokio::time::sleep(Duration::from_millis(period_ms)).await;
+    }
+}
+
+fn decide_with_state(obs: &serde_json::Value, bot: &mut BotState, tick: u64) -> serde_json::Value {
+    // 优先：偶尔写路牌（200 tick 一次 + 视野有 3+ 富资源）
+    if tick.saturating_sub(bot.last_sign_tick) > 200 {
+        if let Some(sign) = maybe_write_sign(obs, bot, tick) {
+            bot.last_sign_tick = tick;
+            return sign;
+        }
+    }
+    decide(obs)
+}
+
+fn maybe_write_sign(
+    obs: &serde_json::Value,
+    bot: &BotState,
+    tick: u64,
+) -> Option<serde_json::Value> {
+    let _ = tick;
+    let entities = obs["visible_entities"].as_array()?;
+    let plants: Vec<&serde_json::Value> = entities
+        .iter()
+        .filter(|e| e["kind"] == "plant" && e["available"].as_bool().unwrap_or(false))
+        .collect();
+    if plants.len() < 3 {
+        return None;
+    }
+    // 统计 species
+    let mut counts: std::collections::HashMap<String, u32> = Default::default();
+    for p in &plants {
+        let s = p["species"].as_str().unwrap_or("").to_string();
+        *counts.entry(s).or_default() += 1;
+    }
+    let (top_species, top_count) = counts
+        .into_iter()
+        .max_by_key(|(_, c)| *c)?;
+    if top_count < 2 {
+        return None;
+    }
+    // 找一个相邻可写 tile
+    let my_pos = parse_pos(&obs["self"]["pos"]);
+    let pos = find_walkable_neighbor(my_pos, obs)?;
+    let text = format!(
+        "{} 处 {} 丰盛 — {}",
+        top_species_label(&top_species),
+        top_count,
+        bot.own_name
+    );
+    Some(serde_json::json!({
+        "kind":"write_sign",
+        "data":{"pos":{"x":pos.0,"y":pos.1},"text":text}
+    }))
+}
+
+fn top_species_label(s: &str) -> &'static str {
+    match s {
+        "lingzhi" => "灵芝",
+        "mushroom" => "菇",
+        "red_berry" => "朱果",
+        "bamboo_stalk" => "竹",
+        "pine_log" => "松木",
+        "stone_chunk" => "石",
+        "flint_chunk" => "燧石",
+        "clay_lump" => "陶土",
+        "vine" => "藤",
+        "reed" => "苇",
+        _ => "此",
     }
 }
 
