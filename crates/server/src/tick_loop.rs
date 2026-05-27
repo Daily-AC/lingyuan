@@ -57,11 +57,20 @@ fn serde_plain<T: serde::Serialize>(v: &T) -> String {
 }
 
 pub async fn run(state: AppState, mut rx: mpsc::Receiver<ActionEnvelope>) {
-    let mut ticker = tokio::time::interval(Duration::from_millis(state.config.tick_ms));
+    use std::sync::atomic::Ordering;
+    let mut cur_ms = state.tick_ms.load(Ordering::Relaxed);
+    let mut ticker = tokio::time::interval(Duration::from_millis(cur_ms));
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
         ticker.tick().await;
+        let new_ms = state.tick_ms.load(Ordering::Relaxed);
+        if new_ms != cur_ms && new_ms >= 50 && new_ms <= 5000 {
+            cur_ms = new_ms;
+            ticker = tokio::time::interval(Duration::from_millis(cur_ms));
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            info!(tick_ms = cur_ms, "tick rate changed");
+        }
 
         let mut actions = Vec::new();
         while let Ok(env) = rx.try_recv() {

@@ -73,6 +73,35 @@ body {
   transform: scale(1.6);
 }
 
+.topbar-spacer { flex: 1; }
+
+.rate-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--yuebai);
+  opacity: 0.8;
+  letter-spacing: 0.1em;
+}
+
+.rate-control input[type="range"] {
+  accent-color: var(--luori);
+  width: 140px;
+}
+
+#tick-rate-val {
+  font-variant-numeric: tabular-nums;
+  color: var(--luori);
+  min-width: 48px;
+  text-align: right;
+}
+
+#topbar {
+  display: flex;
+  align-items: center;
+}
+
 #layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;

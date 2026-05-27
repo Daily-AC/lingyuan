@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use tokio::sync::{broadcast, mpsc, Mutex};
 use world::{Action, AgentId, Observation, World};
 
@@ -9,6 +10,7 @@ pub struct AppState {
     pub frames_tx: broadcast::Sender<TickFrame>,
     pub db_tx: mpsc::Sender<crate::db::DbWrite>,
     pub config: crate::config::ServerConfig,
+    pub tick_ms: Arc<AtomicU64>,
 }
 
 #[derive(Debug, Clone)]

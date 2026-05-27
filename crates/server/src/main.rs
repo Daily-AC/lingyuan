@@ -41,6 +41,7 @@ async fn main() -> anyhow::Result<()> {
         frames_tx: frames_tx.clone(),
         db_tx,
         config: cfg.clone(),
+        tick_ms: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(cfg.tick_ms)),
     };
 
     tokio::spawn(db::writer_task(db.clone(), db_rx));
