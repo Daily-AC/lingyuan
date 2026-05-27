@@ -67,21 +67,21 @@ export class EntityLayer {
       const [category, sub] = e.kind.split(':');
       const cx = e.pos.x * tileSize + tileSize / 2;
       const cy = e.pos.y * tileSize + tileSize / 2;
-      // 优先尝试 sprite
-      const tex = getCached(category, sub);
+      // drop:X 走 item sprite（drops 就是 item 形态）
+      const spriteCategory = category === 'drop' ? 'item' : category;
+      const tex = getCached(spriteCategory, sub);
       if (tex !== null) {
         const s = new Sprite(tex);
         s.anchor.set(0.5);
         s.x = cx;
         s.y = cy;
-        s.width = tileSize;
-        s.height = tileSize;
+        s.width = category === 'drop' ? tileSize * 0.8 : tileSize;
+        s.height = category === 'drop' ? tileSize * 0.8 : tileSize;
         this.container.addChild(s);
         continue;
       }
-      // 触发异步加载（一次性，下次重画会用上）
       if (this.redrawHook !== null) {
-        tryLoad(category, sub, this.redrawHook);
+        tryLoad(spriteCategory, sub, this.redrawHook);
       }
       // 兜底：色块
       usedFallback = true;
