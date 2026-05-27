@@ -208,6 +208,10 @@ export class WorldStage {
       const a = this.lastAgents.find((x) => x.name === name || x.id === name);
       return a ? this.tileWorldCenter(a.pos.x, a.pos.y) : null;
     };
+    const flashAgent = (idOrName: string) => {
+      const a = this.lastAgents.find((x) => x.name === idOrName || x.id === idOrName);
+      if (a) this.agentLayer.flashHit(a.id);
+    };
     const creaturePos = (id: number) => {
       const c = this.lastEntities.find((x) => x.id === id);
       return c ? this.tileWorldCenter(c.pos.x, c.pos.y) : null;
@@ -216,11 +220,13 @@ export class WorldStage {
       case 'agent_attacked_agent': {
         const p = agentPos(e.data.target);
         if (p) this.effectsLayer.push({ worldX: p[0], worldY: p[1], label: `-${e.data.damage}`, color: 0xb83a2e });
+        flashAgent(e.data.target);
         break;
       }
       case 'creature_attacked_agent': {
         const p = agentPos(e.data.target);
         if (p) this.effectsLayer.push({ worldX: p[0], worldY: p[1], label: `-${e.data.damage}`, color: 0xb83a2e });
+        flashAgent(e.data.target);
         break;
       }
       case 'agent_attacked_creature': {

@@ -107,7 +107,7 @@ async fn handle(socket: WebSocket, s: AppState) {
             entities.push(crate::state::SpectatorEntity {
                 pos: c.pos,
                 kind: format!("creature:{}", serde_kind(&c.kind)),
-                label: Some(format!("hp{}", c.hp)),
+                label: Some(format!("{}/{}", c.hp, c.kind.max_hp())),
                 id: Some(c.id),
             });
         }
