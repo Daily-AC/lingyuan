@@ -1,4 +1,4 @@
-import { Application, Container } from 'pixi.js';
+import { Application, Container, Ticker } from 'pixi.js';
 import type { SpectatorAgent, SpectatorEntity, TileMsg, TickEvent } from '../types';
 import { TILE_SIZE, TileLayer } from './tile-layer';
 import { AgentLayer } from './agent-layer';
@@ -20,6 +20,9 @@ export class WorldStage {
   private focusedAgentId: string | null;
   private focusZoom: number;
   private lastAgents: SpectatorAgent[];
+  private camTargetX: number;
+  private camTargetY: number;
+  private camLerpStarted: boolean;
 
   constructor() {
     this.app = new Application();
@@ -37,6 +40,9 @@ export class WorldStage {
     this.focusedAgentId = null;
     this.focusZoom = 2.5;
     this.lastAgents = [];
+    this.camTargetX = 0;
+    this.camTargetY = 0;
+    this.camLerpStarted = false;
   }
 
   async mount(el: HTMLElement): Promise<void> {
@@ -86,10 +92,36 @@ export class WorldStage {
     if (this.focusedAgentId !== null) {
       const a = agents.find((x) => x.id === this.focusedAgentId);
       if (a !== undefined) {
-        this.zoomTo(a.pos.x, a.pos.y, this.focusZoom);
+        this.setCamTarget(a.pos.x, a.pos.y);
       }
     }
   }
+
+  private setCamTarget(tx: number, ty: number): void {
+    const wx = tx * TILE_SIZE + TILE_SIZE / 2;
+    const wy = ty * TILE_SIZE + TILE_SIZE / 2;
+    const [vw, vh] = this.viewSizeCss();
+    this.camTargetX = vw / 2 - wx * this.focusZoom;
+    this.camTargetY = vh / 2 - wy * this.focusZoom;
+    if (!this.camLerpStarted) {
+      this.camLerpStarted = true;
+      Ticker.shared.add(this.camAnimate, this);
+    }
+  }
+
+  private camAnimate = (): void => {
+    if (this.focusedAgentId === null) return;
+    // 每帧朝目标移动 18% 距离（指数 ease）
+    const dx = this.camTargetX - this.root.x;
+    const dy = this.camTargetY - this.root.y;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+      this.root.x = this.camTargetX;
+      this.root.y = this.camTargetY;
+      return;
+    }
+    this.root.x += dx * 0.18;
+    this.root.y += dy * 0.18;
+  };
 
   setEntities(entities: SpectatorEntity[]): void {
     this.lastEntities = entities;
@@ -164,7 +196,10 @@ export class WorldStage {
     if (id !== null) {
       const a = this.lastAgents.find((x) => x.id === id);
       if (a !== undefined) {
+        // 进入聚焦：先瞬移到目标（避免从全图缓慢漂过去）
+        this.root.scale.set(this.focusZoom);
         this.zoomTo(a.pos.x, a.pos.y, this.focusZoom);
+        this.setCamTarget(a.pos.x, a.pos.y);
         return;
       }
     }
