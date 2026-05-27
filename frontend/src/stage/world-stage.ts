@@ -179,6 +179,10 @@ export class WorldStage {
     return this.focusedAgentId;
   }
 
+  onAgentClicked(fn: (id: string) => void): void {
+    this.agentLayer.onAgentClicked(fn);
+  }
+
   private reposition(): void {
     if (this.focusedAgentId !== null) {
       const a = this.lastAgents.find((x) => x.id === this.focusedAgentId);
