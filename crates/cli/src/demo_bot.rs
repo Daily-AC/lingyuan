@@ -122,6 +122,30 @@ fn decide(obs: &serde_json::Value) -> serde_json::Value {
         return wait();
     }
 
+    // 3.5 有 campfire_kit 在身 → 找空地放下（夜间或视野无 hostile）
+    let has_campfire_kit = inventory.iter().any(|(k, n)| k == "campfire_kit" && *n > 0);
+    if has_campfire_kit {
+        if let Some(pos) = find_walkable_neighbor(my_pos, obs) {
+            return place_item("campfire_kit", pos);
+        }
+    }
+
+    // 3.6 材料齐 + 没火堆 kit → 合成 campfire_kit（pinewood ×3 + flint ×1）
+    let pinewood = inventory
+        .iter()
+        .find(|(k, _)| k == "pinewood")
+        .map(|(_, n)| *n)
+        .unwrap_or(0);
+    let flint = inventory
+        .iter()
+        .find(|(k, _)| k == "flint")
+        .map(|(_, n)| *n)
+        .unwrap_or(0);
+    let bag_total: i64 = inventory.iter().map(|(_, n)| *n).sum();
+    if pinewood >= 3 && flint >= 1 && !has_campfire_kit && bag_total < 18 {
+        return craft("campfire_kit");
+    }
+
     // hp 危急 → 也尽量吃东西保命
     if hp < 25 {
         for food in ["lingzhi", "rice_cake", "cooked_mushroom", "cooked_berry", "mushroom", "red_berry"] {
@@ -276,6 +300,40 @@ fn attack_creature(id: u64) -> serde_json::Value {
         "kind":"attack",
         "data": {"target": { "target_kind": "creature", "target_id": id }}
     })
+}
+
+fn craft(recipe: &str) -> serde_json::Value {
+    serde_json::json!({"kind":"craft","data":{"recipe":recipe}})
+}
+
+fn place_item(item: &str, pos: (i32, i32)) -> serde_json::Value {
+    serde_json::json!({
+        "kind":"place",
+        "data":{"item":item,"pos":{"x":pos.0,"y":pos.1}}
+    })
+}
+
+fn find_walkable_neighbor(my_pos: (i32, i32), obs: &serde_json::Value) -> Option<(i32, i32)> {
+    let tiles = obs["vision"]["tiles"].as_array()?;
+    let entities = obs["visible_entities"].as_array();
+    let occupied: std::collections::HashSet<(i32, i32)> = entities
+        .map(|arr| arr.iter().map(|e| parse_pos(&e["pos"])).collect())
+        .unwrap_or_default();
+    for d in DIRS.iter() {
+        let p = step(my_pos, d);
+        if occupied.contains(&p) {
+            continue;
+        }
+        let walkable = tiles
+            .iter()
+            .find(|t| parse_pos(&t["pos"]) == p)
+            .map(|t| tile_walkable(t["tile"]["kind"].as_str().unwrap_or("grass")))
+            .unwrap_or(false);
+        if walkable {
+            return Some(p);
+        }
+    }
+    None
 }
 
 // 让 rand 编译进 cli 时被用到（防止 unused 警告）
