@@ -97,7 +97,19 @@ impl World {
             "ag_{:08x}",
             rand_for_id(self.seed, self.clock.tick, self.agents.len() as u64)
         ));
-        let pos = gen::find_safe_spawn(&self.grid, self.seed.wrapping_add(self.agents.len() as u64));
+        // 把 tick 也算进 seed，避免 leave→rejoin 拿到同一个出生点；同时把
+        // hostile creature（含 boss）的视野半径排除掉，防止 spawn 进 boss 嘴边。
+        let spawn_seed = self
+            .seed
+            .wrapping_add(self.clock.tick.wrapping_mul(0x9E37_79B1_7F4A_7C15))
+            .wrapping_add(self.agents.len() as u64);
+        let pos = gen::find_safe_spawn_avoiding(
+            &self.grid,
+            &self.creatures,
+            spawn_seed,
+            None,
+            crate::observation::VISION_RADIUS,
+        );
         let mut agent = Agent::new_at(id.clone(), name.clone(), pos, self.clock.tick);
         // 开局食物缓存：3 颗朱果（6×3 = 18 hunger），让 agent 至少撑过头一波
         // 食物源冷却，避免出生死亡螺旋。
@@ -169,6 +181,7 @@ impl World {
             self.seed,
             &self.grid,
             &mut self.agents,
+            &self.creatures,
         );
         self.pending_events.append(&mut died);
         self.pending_events.append(&mut respawned);
