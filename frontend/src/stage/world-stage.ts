@@ -56,10 +56,15 @@ export class WorldStage {
   }
 
   setAgents(agents: SpectatorAgent[]): void {
+    this.agentLayer.setRedrawHook(() => this.agentLayer.setAgents(agents));
     this.agentLayer.setAgents(agents);
   }
 
   setEntities(entities: SpectatorEntity[]): void {
+    this.entityLayer.setRedrawHook(() => {
+      // sprite 异步加载完成后立刻重画一次
+      this.entityLayer.render(entities, TILE_SIZE);
+    });
     this.entityLayer.render(entities, TILE_SIZE);
   }
 
