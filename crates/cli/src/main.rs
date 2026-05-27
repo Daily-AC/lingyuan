@@ -1,5 +1,6 @@
 mod client;
 mod commands;
+mod demo_bot;
 mod render;
 mod token_store;
 
@@ -119,6 +120,21 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Clear => {
             token_store::clear()?;
             println!("cleared");
+        }
+        Cmd::Demo {
+            name,
+            server,
+            period_ms,
+            verbose,
+        } => {
+            // 用临时 token，不污染全局 token store
+            let tok = client::join_remote(&server, &name).await?;
+            println!(
+                "[demo] joined as {} (id {}) — Ctrl-C 退出",
+                tok.name, tok.agent_id
+            );
+            let c = client::Client::from_token(tok);
+            demo_bot::run(c, period_ms, verbose).await?;
         }
     }
     Ok(())

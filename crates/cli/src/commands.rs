@@ -57,4 +57,17 @@ pub enum Cmd {
     },
     /// 删 token 文件
     Clear,
+    /// Demo NPC：自动 join + 简单规则 AI 无限循环（找最近 plant 采集 / 饿了吃 / 看见怪攻击 / 随机走）
+    Demo {
+        #[arg(long)]
+        name: String,
+        #[arg(long, default_value = "http://localhost:7777")]
+        server: String,
+        /// 每多少毫秒 observe + act 一次
+        #[arg(long, default_value_t = 800)]
+        period_ms: u64,
+        /// 看到名字的对话频道（屏幕日志）
+        #[arg(long, default_value_t = false)]
+        verbose: bool,
+    },
 }
