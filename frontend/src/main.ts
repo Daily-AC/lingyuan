@@ -100,6 +100,10 @@ function describeEvent(ev: TickEvent): string {
       return `${ev.data.kind} 殁 @(${ev.data.at.x},${ev.data.at.y})`;
     case 'creature_attacked_agent':
       return `${ev.data.creature_kind} ⚔ ${ev.data.target} -${ev.data.damage}`;
+    case 'boss_spawned':
+      return `※ ${ev.data.announcement}：${ev.data.kind} @(${ev.data.at.x},${ev.data.at.y})`;
+    case 'boss_killed':
+      return `※ ${ev.data.kind} 殁 @(${ev.data.at.x},${ev.data.at.y}) · ${ev.data.slayer ?? '?'} 斩之`;
     case 'agent_wrote_sign':
       return `${ev.data.agent} 立牌 @(${ev.data.pos.x},${ev.data.pos.y}): ${ev.data.text_excerpt}`;
     case 'agent_sent_mail':

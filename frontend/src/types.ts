@@ -74,6 +74,8 @@ export type TickEvent =
   | { kind: 'creature_spawned'; data: { id: number; kind: string; at: TileCoord } }
   | { kind: 'creature_killed'; data: { id: number; kind: string; at: TileCoord } }
   | { kind: 'creature_attacked_agent'; data: { creature_id: number; creature_kind: string; target: string; damage: number } }
+  | { kind: 'boss_spawned'; data: { id: number; kind: string; at: TileCoord; announcement: string } }
+  | { kind: 'boss_killed'; data: { id: number; kind: string; slayer: string | null; at: TileCoord } }
   | { kind: 'agent_wrote_sign'; data: { agent: string; pos: TileCoord; text_excerpt: string } }
   | { kind: 'agent_sent_mail'; data: { from: string; to: string; text_excerpt: string } }
   | { kind: 'season_changed'; data: { to: Season } }

@@ -238,6 +238,14 @@ button.ghost:hover {
   border-left-color: var(--luori);
 }
 
+.event-boss_spawned,
+.event-boss_killed {
+  border-left-color: var(--zhusha);
+  background: rgba(184, 58, 46, 0.18);
+  font-weight: bold;
+  letter-spacing: 0.02em;
+}
+
 ::-webkit-scrollbar {
   width: 8px;
 }
