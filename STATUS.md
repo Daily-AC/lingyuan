@@ -1,17 +1,19 @@
 # 灵渊 (Lingyuan) — 当前状态
 
-> v2-alpha · 2026-05-27 凌晨/上午两轮推进。spec 见 `docs/superpowers/specs/2026-05-27-lingyuan-design.md`。
+> **v3-alpha** · 2026-05-27 凌晨 + 上午 + 下午三轮推进。spec 见 `docs/superpowers/specs/2026-05-27-lingyuan-design.md`。
 
 ## 视觉记录
 
 | 截图 | 说明 |
 |------|------|
-| `docs/screenshot-v1.png` | M1-M5 完成后初版：色块 tile + 简单 agent dot，密度爆炸 |
+| `docs/screenshot-v1.png` | M1-M5：色块 tile + 简单 agent dot，密度爆炸 |
 | `docs/screenshot-v2-overview.png` | M8 sprite 落地：植物/动物 sprite 满地图 |
 | `docs/screenshot-v2-focus.png` | M7 关注模式上线：alice 居中 + 金圈 + 名字胶囊 |
 | `docs/screenshot-v3-focus-inv.png` | inventory HUD + 昼夜全局色调 + 4 个 demo bot 实战 |
 | `docs/screenshot-v3-focus-effects.png` | 浮字 + minimap + 战斗事件流 |
-| `docs/screenshot-v4-full-hud.png` | **最终**：sprite 满 + minimap + 高亮事件 + chip icon |
+| `docs/screenshot-v4-full-hud.png` | item chip icon + 高亮事件 |
+| `docs/screenshot-v5-tile-focus.png` | **v3-alpha 终图**：wukong 站在 sunset gold 沙地，周围 真·seamless 像素 tile（青竹林/朱阳枫/苍松/月白草地）|
+| `docs/screenshot-v5-tile-overview.png` | 全图视角：每寸地皮都是 GPT 生的仙侠像素纹理 |
 
 ## ✅ 全部完成
 
@@ -26,66 +28,93 @@
 | **M7+ UI 改造** | ✅ | 关注模式 + agent 高亮 + idle bob + 浮字 + minimap + 昼夜色调 + chip icon + canvas 直接点 + Esc 取消 |
 | **M8 sprite** | ✅ | **46 张** gpt-image-2 仙侠像素 sprite（plant 10 / creature 8 / building 2 / agent 4 / item 19 / tile 4） |
 | **M9 Agent skill** | ✅ | `assets/skill/lingyuan-survivor.md` 完整 |
-| **M10 replay CLI** | ✅ | `survivor replay --db ... --from N --to M --summary` 事件回放 |
-| **M-bot Demo NPC** | ✅ | `survivor demo --name X` 自动 AI（找食物/反击/逃跑） |
+| **M10 replay CLI** | ✅ | `survivor replay/watch/stats --db ...` 事件回放/实时追/战绩 |
+| **M-bot Demo NPC** | ✅ | `survivor demo --name X` 自动 AI（找食物/反击/逃跑/craft 火堆/写路牌）|
+| **MCP server** | ✅ | `mcp/lingyuan_mcp.py`：Claude Code 原生 5 工具（join/observe/act/world_info/leave） |
+| **Tile sprite v2** | ✅ | 13 张真·seamless 像素 tile 全替换色块，prompt 加 "ABSOLUTELY NO objects" 才出对 |
 
 **测试**：world crate 42 单测 + server crate 3 集成测试 全 PASS。
 
-**代码量**：188 文件 / 19,669 行 / 27 commits。
+**代码量**：195+ 文件 / 21,000+ 行 / 40+ commits。
 
 ## 🚀 怎么玩
 
+### 一键开局（推荐）
+
 ```bash
 cd /Users/e0_7/projects/games/lingyuan
+BOTS=4 TICK_MS=600 bash scripts/play.sh
+# 自动 build + 起 server + 起 frontend + 4 个 demo NPC + 开浏览器
+```
 
-# 1. 起服务
+### 手动
+
+```bash
 cargo run -p server                       # :7777
-
-# 2. 起 UI（另一终端）
 cd frontend && pnpm dev                   # :5173
 
-# 3a. 自己当 agent
+# 自己当 agent（CLI）
 cargo run -p cli -- join --name human
 cargo run -p cli -- observe
 cargo run -p cli -- act move --dir=north
 
-# 3b. 让世界活起来（4 个 NPC bot 自动循环）
+# NPC bot
 cargo run -p cli -- demo --name wukong &
-cargo run -p cli -- demo --name bajie &
-cargo run -p cli -- demo --name shaseng &
-cargo run -p cli -- demo --name tangseng &
 
-# 4. 把 LLM 接进来
+# 查看战绩 / 回放 / 实时尾随
+cargo run -p cli -- stats --db data/world.db
+cargo run -p cli -- replay --db data/world.db --from 100 --to 300 --summary
+cargo run -p cli -- watch --db data/world.db --only-new
+```
+
+### LLM agent 接入
+
+**方法 A — Claude Code skill**：
+```bash
 cp assets/skill/lingyuan-survivor.md ~/.claude/skills/
 # Claude Code 内：/skill lingyuan-survivor
-
-# 5. replay 看过去发生了什么
-cargo run -p cli -- replay --db data/world.db --from 100 --to 300 --summary
 ```
+
+**方法 B — MCP server**（更原生）：
+```json
+// ~/.claude/mcp.json
+{
+  "mcpServers": {
+    "lingyuan": {
+      "command": "/Users/e0_7/projects/games/lingyuan/.venv/bin/python",
+      "args": ["/Users/e0_7/projects/games/lingyuan/mcp/lingyuan_mcp.py"]
+    }
+  }
+}
+```
+
+详见 `mcp/README.md`。
 
 ## 浏览器观战 UI 操作
 
-- **点右侧 agent 行** → 放大跟焦该 agent
-- **直接点 canvas 上 agent sprite** → 同上
-- **Esc** 或 **右上「全图」按钮** → 切回全图
+- **点右侧 agent 行 / 直接点 canvas 上 agent sprite** → 放大跟焦
+- **Esc / 右上「全图」按钮 / 在 canvas 上拖动/滚轮** → 退出 focus 自由探索
+- **鼠标拖动** → 平移视角
+- **滚轮** → 围绕鼠标缩放
+- **顶栏 tick 速率 slider** → 100~2000ms 热调
 - **底部 inventory bar**：聚焦时显示该 agent 物品（带 sprite icon）
-- **右上 minimap**：80×80 缩略图，红/白点标 agent
-- **事件流**：聚焦时和该 agent 相关的事件左侧金边高亮
+- **右上 minimap**：80×80 缩略图，金/白点标 agent
+- **事件流**：聚焦时和该 agent 相关事件左侧金边高亮；boss 事件朱砂红
+- **agent 视觉**：脚下月白光环 + 名字胶囊 + idle 浮动 + 选中环金色呼吸 + 受击瞬间红 tint
+- **creature 视觉**：头顶 hp 条；hostile 含 wolf/night_demon/boss 渡劫者
+- **死亡水墨晕染**：agent_died / creature_killed / boss_killed 各级半径
 - **顶栏 tick 心跳灯**：每 tick 闪一下
-- **昼夜变色**：夜里全图自动调暗偏冷
-- **boss 通告**：渡劫者出现时事件流朱砂红高亮
+- **昼夜变色**：夜里 canvas 自动调暗偏冷（HUD 不受影响）
 
-## 🚧 已知 v1 边界
+## 🚧 已知边界（v3-alpha 之后才会动的）
 
 | 项 | 状态 |
 |---|---|
-| tile sprite | 主动放弃，gpt-image-2 把"32×32 grass tile"画成整幅仙侠小景。色块够用 |
 | 季节差异化 spawn / 资源 | spec 写了但未实装（春草药+1.5 等） |
 | warmth/sanity 真实衰减 | 占位但不衰减 |
-| T2/T3 配方 / 丹炉 / 金丹 | 等 M6 完整版 |
+| T2/T3 配方 / 丹炉 / 金丹 | bot 暂只会 T0（campfire_kit）|
 | demo bot 在山袋里偶尔卡 | 视野检查已加，多 bot 互堵仍会偶尔挤死 |
-| 行动 ↔ 像素移动插值 | tick 边界瞬移；可加 lerp 平滑 |
-| 怪物的 hp 条 | 当前只有文字 `hp30` 浮标 |
+| 多 LLM benchmark mode | 暂无 leaderboard 跨局聚合（事件已存 SQLite）|
 
 ## Sprite 工作流（已跑全套）
 
