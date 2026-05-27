@@ -12,8 +12,9 @@
 | **M4 战斗与怪物** | ✅ | 攻击动作、动物 AI（rabbit/deer 逃跑）、怪物 AI（wolf/night_demon 主动追击）、夜晚刷新、全场 PvP | 2 个攻击单测 |
 | **M5 社交** | ✅ | 立牌（路牌）+ 飞鸽（定向私信）+ 容量限制 + 雾区可见性 | 2 个单测 + e2e 跑通 |
 | **M9 Agent skill** | ✅ | `assets/skill/lingyuan-survivor.md` 完整 skill 文档 | 可直接拷给 Claude Code |
+| **M8 sprite GPT 流水线** | ✅ | 27 张仙侠像素 sprite（plant/creature/building/agent）入仓；前端 sprite-cache lazy 加载 + fallback 色块 | `docs/screenshot-v1.png` |
 
-**测试统计**：world crate 42 单测 + server crate 3 集成测试 全 PASS。
+**测试统计**：world crate 42 单测 + server crate 3 集成测试 全 PASS；前端 build OK + playwright 截图正常。
 
 ## 🚧 未完成里程碑
 
@@ -21,7 +22,8 @@
 |--------|------|------|
 | M6 季节效果 + boss | 部分 | clock 跑季节、UI 显示；季节差异化 spawn / boss event 未做 |
 | M7 前端水墨终态 | 部分 | 已有功能性 UI；卷轴动画 / 水墨 hover / 关注模式未做 |
-| M8 sprite GPT 工作流 | 待启动 | 见下方 §Sprite 工作流 |
+| M8 物品图标 sprite | 未跑 | manifest 里 19 个 item icon 还没生（item HUD 也还没建，等 M7 一起做）|
+| M8 tile sprite | 主动跳过 | 已尝试，gpt-image-2 把 tile prompt 当艺术品做，全部生成精美但不可平铺的孤景图。tile 保留色块 |
 | M10 replay 工具 | 待启动 | 事件日志已持久化（SQLite events 表），但没有 replay CLI |
 
 ## 📂 项目结构
@@ -78,7 +80,33 @@ cp assets/skill/lingyuan-survivor.md ~/.claude/skills/
 bash scripts/demo.sh
 ```
 
-## 🎨 Sprite 工作流（M8 待启动）
+## 🎨 Sprite 工作流（已跑 27 张）
+
+调用 `~/.claude/skills/gpt-image-2` skill（RunningHub backbone）：
+
+```bash
+# 已跑完的批次
+python scripts/batch_gen_sprites.py --only-category plant      # 10/10
+python scripts/batch_gen_sprites.py --only-category creature   # 8/8
+python scripts/batch_gen_sprites.py --only-category building   # 2/2
+python scripts/batch_gen_sprites.py --only-category agent      # 4/4
+python scripts/batch_gen_sprites.py --only-category tile       # 4/13 后停（产出全是孤景）
+
+# 待跑
+python scripts/batch_gen_sprites.py --only-category item       # 19 张
+
+# 后处理：去 RH 棋盘背景 + 降采样到 32x32 + 量化 5 色
+python scripts/post_process_sprite.py
+
+# 同步到前端
+rm -rf frontend/public/sprites && cp -r assets/sprites frontend/public/
+```
+
+效果见 `docs/screenshot-v1.png`。
+
+### Sprite 老 OpenAI 备份方案
+
+
 
 `scripts/gen_sprites.py` 已写好，需要 OpenAI API key 才能跑：
 
