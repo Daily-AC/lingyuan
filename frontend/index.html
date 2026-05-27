@@ -11,12 +11,16 @@
       <span class="title">灵渊</span>
       <span class="sep">·</span>
       <span id="clock">连接中…</span>
+      <span id="tick-pulse" aria-hidden="true"></span>
     </header>
     <main id="layout">
       <section id="stage" aria-label="世界舞台"></section>
       <aside id="right-panel">
         <section class="panel">
-          <h2>在世 Agents</h2>
+          <div class="panel-head">
+            <h2>在世 Agents</h2>
+            <button id="focus-clear" class="ghost" hidden>全图</button>
+          </div>
           <ul id="agent-list" class="list"></ul>
         </section>
         <section class="panel">
