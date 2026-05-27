@@ -249,13 +249,20 @@ async function main(): Promise<void> {
     refreshFocusBtn();
   };
 
-  focusBtn.addEventListener('click', () => {
+  const unfocus = () => {
     stage.focusAgent(null);
     renderAgents(lastAgents, null, pickAgent);
     renderFocusHud(lastAgents, null);
     minimap.render(lastAgents, null);
     rerenderEvents(null);
     refreshFocusBtn();
+  };
+  focusBtn.addEventListener('click', unfocus);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && stage.isFocused()) {
+      e.preventDefault();
+      unfocus();
+    }
   });
 
   const pulseEl = el<HTMLSpanElement>('tick-pulse');
