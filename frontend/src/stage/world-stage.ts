@@ -247,6 +247,14 @@ export class WorldStage {
       case 'agent_died': {
         const [wx, wy] = this.tileWorldCenter(e.data.at.x, e.data.at.y);
         this.effectsLayer.push({ worldX: wx, worldY: wy, label: '殁', color: 0xb83a2e });
+        this.effectsLayer.pushInkWash(wx, wy, TILE_SIZE * 2.2);
+        break;
+      }
+      case 'creature_killed':
+      case 'boss_killed': {
+        const [wx, wy] = this.tileWorldCenter(e.data.at.x, e.data.at.y);
+        const r = e.kind === 'boss_killed' ? TILE_SIZE * 3.5 : TILE_SIZE * 1.4;
+        this.effectsLayer.pushInkWash(wx, wy, r);
         break;
       }
       case 'boss_spawned': {
