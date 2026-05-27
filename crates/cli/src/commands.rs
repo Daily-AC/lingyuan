@@ -57,6 +57,17 @@ pub enum Cmd {
     },
     /// 删 token 文件
     Clear,
+    /// 实时尾随事件流（每秒轮询 SQLite events 表）
+    Watch {
+        #[arg(long, default_value = "data/world.db")]
+        db: String,
+        /// 只看某些 kind（逗号分隔）
+        #[arg(long)]
+        kinds: Option<String>,
+        /// 跳过历史，只看新事件
+        #[arg(long, default_value_t = false)]
+        only_new: bool,
+    },
     /// 从 SQLite events 表读出某 tick 区间的事件流并打印
     Replay {
         #[arg(long, default_value = "data/world.db")]

@@ -2,9 +2,94 @@
 //! 用 shell out 到 sqlite3 binary，避免引入 rusqlite 与 server 的 sqlx 冲突。
 
 use anyhow::{anyhow, Context, Result};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 use std::process::Command;
+use std::thread;
+use std::time::Duration;
+
+pub fn watch(db_path: &Path, kinds_filter: Option<Vec<String>>, only_new: bool) -> Result<()> {
+    if !db_path.exists() {
+        return Err(anyhow!("db file not found: {}", db_path.display()));
+    }
+    let filter: Option<HashSet<String>> =
+        kinds_filter.map(|v| v.into_iter().collect());
+    let mut last_tick: i64 = if only_new {
+        query_max_tick(db_path)?.unwrap_or(0)
+    } else {
+        -1
+    };
+    eprintln!("[watch] tail from tick {} (Ctrl-C to exit)", last_tick.max(0));
+    loop {
+        let rows = read_since(db_path, last_tick)?;
+        for (tick, seq, json) in rows {
+            let parsed: serde_json::Value = match serde_json::from_str(&json) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let kind = parsed["kind"].as_str().unwrap_or("?").to_string();
+            if let Some(f) = &filter {
+                if !f.contains(&kind) {
+                    last_tick = last_tick.max(tick);
+                    continue;
+                }
+            }
+            let data = &parsed["data"];
+            let data_str = if data.is_null() {
+                String::new()
+            } else {
+                serde_json::to_string(data).unwrap_or_default()
+            };
+            println!("[t{tick:>6}#{seq:>2}] {kind:<28} {data_str}");
+            last_tick = last_tick.max(tick);
+        }
+        thread::sleep(Duration::from_secs(1));
+    }
+}
+
+fn query_max_tick(db_path: &Path) -> Result<Option<i64>> {
+    let out = Command::new("sqlite3")
+        .arg("-noheader")
+        .arg(db_path)
+        .arg("SELECT COALESCE(MAX(tick), -1) FROM events")
+        .output()
+        .context("sqlite3")?;
+    if !out.status.success() {
+        return Ok(None);
+    }
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    s.parse::<i64>().ok().map(Some).ok_or_else(|| anyhow!("bad max tick: {}", s))
+}
+
+fn read_since(db_path: &Path, since: i64) -> Result<Vec<(i64, i64, String)>> {
+    let sql = format!(
+        "SELECT tick || char(31) || seq || char(31) || event_json FROM events WHERE tick > {} ORDER BY tick ASC, seq ASC",
+        since,
+    );
+    let out = Command::new("sqlite3")
+        .arg("-noheader")
+        .arg("-separator").arg("\n")
+        .arg(db_path)
+        .arg(sql)
+        .output()
+        .context("sqlite3")?;
+    if !out.status.success() {
+        return Err(anyhow!("sqlite3 failed: {}", String::from_utf8_lossy(&out.stderr)));
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let mut rows = Vec::new();
+    for line in stdout.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        let mut parts = line.splitn(3, '\x1f');
+        let t: i64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+        let s: i64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+        let j = parts.next().unwrap_or("{}").to_string();
+        rows.push((t, s, j));
+    }
+    Ok(rows)
+}
 
 pub fn run(
     db_path: &Path,
