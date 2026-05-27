@@ -57,6 +57,21 @@ pub enum Cmd {
     },
     /// 删 token 文件
     Clear,
+    /// 从 SQLite events 表读出某 tick 区间的事件流并打印
+    Replay {
+        #[arg(long, default_value = "data/world.db")]
+        db: String,
+        #[arg(long, default_value_t = 0)]
+        from: u64,
+        #[arg(long, default_value_t = u64::MAX)]
+        to: u64,
+        /// 过滤事件 kind（逗号分隔；不传则全部）
+        #[arg(long)]
+        kinds: Option<String>,
+        /// 也输出统计摘要
+        #[arg(long)]
+        summary: bool,
+    },
     /// Demo NPC：自动 join + 简单规则 AI 无限循环（找最近 plant 采集 / 饿了吃 / 看见怪攻击 / 随机走）
     Demo {
         #[arg(long)]
