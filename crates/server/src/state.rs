@@ -42,7 +42,9 @@ pub struct SpectatorAgent {
     pub pos: world::TileCoord,
     pub hp: i16,
     pub hunger: i16,
+    pub stamina: i16,
     pub state: String,
+    pub inventory: Vec<world::ItemStack>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

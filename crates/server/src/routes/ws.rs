@@ -69,11 +69,13 @@ async fn handle(socket: WebSocket, s: AppState) {
                 pos: a.pos,
                 hp: a.status.hp,
                 hunger: a.status.hunger,
+                stamina: a.status.stamina,
                 state: match a.state {
                     world::AgentState::Alive => "alive".into(),
                     world::AgentState::Dying { .. } => "dying".into(),
                     world::AgentState::Meditating { .. } => "meditating".into(),
                 },
+                inventory: a.inventory.slots.clone(),
             })
             .collect();
         let mut entities = Vec::with_capacity(w.entities.len() + w.buildings.len());
