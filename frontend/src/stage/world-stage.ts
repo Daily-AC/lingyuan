@@ -66,6 +66,74 @@ export class WorldStage {
     this.resizeObserver.observe(el);
     // 初次显式 resize 以防 init 时 host 还没渲染
     this.handleResize();
+
+    // 鼠标拖动平移 + 滚轮缩放
+    this.installViewportControls(el);
+  }
+
+  private installViewportControls(host: HTMLElement): void {
+    let dragging = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let rootStartX = 0;
+    let rootStartY = 0;
+    const canvas = this.app.canvas as HTMLCanvasElement;
+
+    canvas.addEventListener('pointerdown', (ev: PointerEvent) => {
+      // 只响应左键空白处拖动（agent 自己 stopPropagation）
+      if (ev.button !== 0) return;
+      dragging = true;
+      dragStartX = ev.clientX;
+      dragStartY = ev.clientY;
+      rootStartX = this.root.x;
+      rootStartY = this.root.y;
+      canvas.setPointerCapture(ev.pointerId);
+      this.onManualPan();
+    });
+    canvas.addEventListener('pointermove', (ev: PointerEvent) => {
+      if (!dragging) return;
+      this.root.x = rootStartX + (ev.clientX - dragStartX);
+      this.root.y = rootStartY + (ev.clientY - dragStartY);
+    });
+    canvas.addEventListener('pointerup', (ev: PointerEvent) => {
+      dragging = false;
+      try { canvas.releasePointerCapture(ev.pointerId); } catch {}
+    });
+    canvas.addEventListener('pointercancel', () => {
+      dragging = false;
+    });
+
+    canvas.addEventListener('wheel', (ev: WheelEvent) => {
+      ev.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = ev.clientX - rect.left;
+      const mouseY = ev.clientY - rect.top;
+      const oldScale = this.root.scale.x;
+      const factor = ev.deltaY < 0 ? 1.15 : 1 / 1.15;
+      const newScale = Math.max(0.15, Math.min(6, oldScale * factor));
+      if (newScale === oldScale) return;
+      // 围绕鼠标位置缩放
+      const worldX = (mouseX - this.root.x) / oldScale;
+      const worldY = (mouseY - this.root.y) / oldScale;
+      this.root.scale.set(newScale);
+      this.root.x = mouseX - worldX * newScale;
+      this.root.y = mouseY - worldY * newScale;
+      this.onManualPan();
+    }, { passive: false });
+    void host; // keep param
+  }
+
+  /** 用户手动 pan/zoom 时退出 focus 模式 */
+  private manualPanListener: (() => void) | null = null;
+  setManualPanListener(fn: () => void): void {
+    this.manualPanListener = fn;
+  }
+  private onManualPan(): void {
+    if (this.focusedAgentId !== null) {
+      this.focusedAgentId = null;
+      this.agentLayer.setSelected(null);
+      if (this.manualPanListener !== null) this.manualPanListener();
+    }
   }
 
   private handleResize(): void {

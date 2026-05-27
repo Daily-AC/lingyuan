@@ -265,6 +265,14 @@ async function main(): Promise<void> {
     }
   });
   stage.onAgentClicked(pickAgent);
+  stage.setManualPanListener(() => {
+    // 手动拖动/缩放后退出 focus 模式
+    renderAgents(lastAgents, null, pickAgent);
+    renderFocusHud(lastAgents, null);
+    minimap.render(lastAgents, null);
+    rerenderEvents(null);
+    refreshFocusBtn();
+  });
 
   const pulseEl = el<HTMLSpanElement>('tick-pulse');
   const beat = () => {
