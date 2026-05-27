@@ -1,163 +1,137 @@
 # 灵渊 (Lingyuan) — 当前状态
 
-> 自动生成于 2026-05-27 凌晨。spec 见 `docs/superpowers/specs/2026-05-27-lingyuan-design.md`。
+> v2-alpha · 2026-05-27 凌晨/上午两轮推进。spec 见 `docs/superpowers/specs/2026-05-27-lingyuan-design.md`。
 
-## ✅ 已完成里程碑
+## 视觉记录
 
-| 里程碑 | 状态 | 内容 | 验证 |
-|--------|------|------|------|
-| **M1 骨架** | ✅ | Cargo workspace 三 crate（world/server/cli）+ tokio + sqlx + axum | `cargo build` 全过 |
-| **M2 基础世界** | ✅ | 80×80 多 biome 地图、agent join/observe/move、fog of war、tile/agent 渲染 | server integration 3/3 + 前端 build 成功 |
-| **M3 求生闭环** | ✅ | hp/hunger/stamina 衰减、采集（10 种 plant）、9 个 T0/T1 配方、灶台篝火、进食、死亡重生 | 12 个针对性单测 |
-| **M4 战斗与怪物** | ✅ | 攻击动作、动物 AI（rabbit/deer 逃跑）、怪物 AI（wolf/night_demon 主动追击）、夜晚刷新、全场 PvP | 2 个攻击单测 |
-| **M5 社交** | ✅ | 立牌（路牌）+ 飞鸽（定向私信）+ 容量限制 + 雾区可见性 | 2 个单测 + e2e 跑通 |
-| **M9 Agent skill** | ✅ | `assets/skill/lingyuan-survivor.md` 完整 skill 文档 | 可直接拷给 Claude Code |
-| **M8 sprite GPT 流水线** | ✅ | 27 张仙侠像素 sprite（plant/creature/building/agent）入仓；前端 sprite-cache lazy 加载 + fallback 色块 | `docs/screenshot-v1.png` |
+| 截图 | 说明 |
+|------|------|
+| `docs/screenshot-v1.png` | M1-M5 完成后初版：色块 tile + 简单 agent dot，密度爆炸 |
+| `docs/screenshot-v2-overview.png` | M8 sprite 落地：植物/动物 sprite 满地图 |
+| `docs/screenshot-v2-focus.png` | M7 关注模式上线：alice 居中 + 金圈 + 名字胶囊 |
+| `docs/screenshot-v3-focus-inv.png` | inventory HUD + 昼夜全局色调 + 4 个 demo bot 实战 |
+| `docs/screenshot-v3-focus-effects.png` | 浮字 + minimap + 战斗事件流 |
+| `docs/screenshot-v4-full-hud.png` | **最终**：sprite 满 + minimap + 高亮事件 + chip icon |
 
-**测试统计**：world crate 42 单测 + server crate 3 集成测试 全 PASS；前端 build OK + playwright 截图正常。
+## ✅ 全部完成
 
-## 🚧 未完成里程碑
+| 里程碑 | 状态 | 关键内容 |
+|--------|------|---------|
+| **M1 骨架** | ✅ | Cargo workspace 3 crate + tokio + sqlx + axum |
+| **M2 基础世界** | ✅ | 80×80 5 biome 地图 + agent join/observe/move + fog of war |
+| **M3 求生闭环** | ✅ | hp/hunger/stamina + 9 配方 + 火堆灶台 + 进食 + 死亡重生 |
+| **M4 战斗 + 怪物 + PvP** | ✅ | 4 种生物 + 夜晚刷新 + agent vs agent 攻击 + 全场 PvP |
+| **M5 社交** | ✅ | 立牌路标 + 飞鸽私信（**唯一靠自然语言的玩法**） |
+| **M6-mini Boss** | ✅ | 渡劫者（hp800 atk35）每 1500 tick 自动刷 + 全图通告事件 |
+| **M7+ UI 改造** | ✅ | 关注模式 + agent 高亮 + idle bob + 浮字 + minimap + 昼夜色调 + chip icon + canvas 直接点 + Esc 取消 |
+| **M8 sprite** | ✅ | **46 张** gpt-image-2 仙侠像素 sprite（plant 10 / creature 8 / building 2 / agent 4 / item 19 / tile 4） |
+| **M9 Agent skill** | ✅ | `assets/skill/lingyuan-survivor.md` 完整 |
+| **M10 replay CLI** | ✅ | `survivor replay --db ... --from N --to M --summary` 事件回放 |
+| **M-bot Demo NPC** | ✅ | `survivor demo --name X` 自动 AI（找食物/反击/逃跑） |
 
-| 里程碑 | 状态 | 内容 |
-|--------|------|------|
-| M6 季节效果 + boss | 部分 | clock 跑季节、UI 显示；季节差异化 spawn / boss event 未做 |
-| M7 前端水墨终态 | 部分 | 已有功能性 UI；卷轴动画 / 水墨 hover / 关注模式未做 |
-| M8 物品图标 sprite | 未跑 | manifest 里 19 个 item icon 还没生（item HUD 也还没建，等 M7 一起做）|
-| M8 tile sprite | 主动跳过 | 已尝试，gpt-image-2 把 tile prompt 当艺术品做，全部生成精美但不可平铺的孤景图。tile 保留色块 |
-| M10 replay 工具 | 待启动 | 事件日志已持久化（SQLite events 表），但没有 replay CLI |
+**测试**：world crate 42 单测 + server crate 3 集成测试 全 PASS。
 
-## 📂 项目结构
+**代码量**：188 文件 / 19,669 行 / 27 commits。
 
-```
-lingyuan/
-├── Cargo.toml                  workspace
-├── README.md
-├── STATUS.md                   ← 你正在看的文件
-├── crates/
-│   ├── world/                  纯逻辑（42 单测）
-│   ├── server/                 axum + sqlx + tick loop（3 集成测试）
-│   └── cli/                    survivor CLI binary
-├── frontend/                   Vite + PixiJS（pnpm build OK）
-├── assets/
-│   └── skill/
-│       └── lingyuan-survivor.md  ← agent 接入文档
-├── scripts/
-│   ├── smoke.sh                端到端基础冒烟
-│   ├── demo.sh                 多 agent 同台 demo（开浏览器）
-│   ├── survival-smoke.sh       M3 求生闭环冒烟
-│   └── gen_sprites.py          M8 sprite 生成（待跑）
-└── docs/
-    └── superpowers/
-        ├── specs/2026-05-27-lingyuan-design.md
-        └── plans/
-            ├── 2026-05-27-m1-m2-skeleton-and-world.md
-            ├── 2026-05-27-m3-survival-loop.md
-            └── 2026-05-27-m4-combat.md
-```
-
-## 🚀 怎么玩起来
+## 🚀 怎么玩
 
 ```bash
-# 1. 启动服务（监听 :7777）
 cd /Users/e0_7/projects/games/lingyuan
-cargo run -p server
 
-# 2. 启动浏览器观战 UI（:5173）
-cd frontend && pnpm dev
-# 然后浏览器开 http://127.0.0.1:5173
+# 1. 起服务
+cargo run -p server                       # :7777
 
-# 3a. 自己当 agent 玩玩
-cargo run -p cli -- join --name human --server http://localhost:7777
+# 2. 起 UI（另一终端）
+cd frontend && pnpm dev                   # :5173
+
+# 3a. 自己当 agent
+cargo run -p cli -- join --name human
 cargo run -p cli -- observe
 cargo run -p cli -- act move --dir=north
 
-# 3b. 把 LLM 接进来（Claude Code）
-cp assets/skill/lingyuan-survivor.md ~/.claude/skills/
-# 在 Claude Code 内：/skill lingyuan-survivor
-# Claude 会按 skill 指引自动调 survivor CLI
+# 3b. 让世界活起来（4 个 NPC bot 自动循环）
+cargo run -p cli -- demo --name wukong &
+cargo run -p cli -- demo --name bajie &
+cargo run -p cli -- demo --name shaseng &
+cargo run -p cli -- demo --name tangseng &
 
-# 4. 一键 demo（开 server + frontend + 2 个 curl 模拟 agent 随机走）
-bash scripts/demo.sh
+# 4. 把 LLM 接进来
+cp assets/skill/lingyuan-survivor.md ~/.claude/skills/
+# Claude Code 内：/skill lingyuan-survivor
+
+# 5. replay 看过去发生了什么
+cargo run -p cli -- replay --db data/world.db --from 100 --to 300 --summary
 ```
 
-## 🎨 Sprite 工作流（已跑 27 张）
+## 浏览器观战 UI 操作
 
-调用 `~/.claude/skills/gpt-image-2` skill（RunningHub backbone）：
+- **点右侧 agent 行** → 放大跟焦该 agent
+- **直接点 canvas 上 agent sprite** → 同上
+- **Esc** 或 **右上「全图」按钮** → 切回全图
+- **底部 inventory bar**：聚焦时显示该 agent 物品（带 sprite icon）
+- **右上 minimap**：80×80 缩略图，红/白点标 agent
+- **事件流**：聚焦时和该 agent 相关的事件左侧金边高亮
+- **顶栏 tick 心跳灯**：每 tick 闪一下
+- **昼夜变色**：夜里全图自动调暗偏冷
+- **boss 通告**：渡劫者出现时事件流朱砂红高亮
+
+## 🚧 已知 v1 边界
+
+| 项 | 状态 |
+|---|---|
+| tile sprite | 主动放弃，gpt-image-2 把"32×32 grass tile"画成整幅仙侠小景。色块够用 |
+| 季节差异化 spawn / 资源 | spec 写了但未实装（春草药+1.5 等） |
+| warmth/sanity 真实衰减 | 占位但不衰减 |
+| T2/T3 配方 / 丹炉 / 金丹 | 等 M6 完整版 |
+| demo bot 在山袋里偶尔卡 | 视野检查已加，多 bot 互堵仍会偶尔挤死 |
+| 行动 ↔ 像素移动插值 | tick 边界瞬移；可加 lerp 平滑 |
+| 怪物的 hp 条 | 当前只有文字 `hp30` 浮标 |
+
+## Sprite 工作流（已跑全套）
+
+调 `~/.claude/skills/gpt-image-2`（RunningHub backbone）：
 
 ```bash
-# 已跑完的批次
-python scripts/batch_gen_sprites.py --only-category plant      # 10/10
-python scripts/batch_gen_sprites.py --only-category creature   # 8/8
-python scripts/batch_gen_sprites.py --only-category building   # 2/2
-python scripts/batch_gen_sprites.py --only-category agent      # 4/4
-python scripts/batch_gen_sprites.py --only-category tile       # 4/13 后停（产出全是孤景）
+source .venv/bin/activate
+python scripts/batch_gen_sprites.py -j 3 --only-category plant
+python scripts/batch_gen_sprites.py -j 3 --only-category creature
+python scripts/batch_gen_sprites.py -j 2 --only-category building
+python scripts/batch_gen_sprites.py -j 2 --only-category agent
+python scripts/batch_gen_sprites.py -j 3 --only-category item
 
-# 待跑
-python scripts/batch_gen_sprites.py --only-category item       # 19 张
-
-# 后处理：去 RH 棋盘背景 + 降采样到 32x32 + 量化 5 色
-python scripts/post_process_sprite.py
-
-# 同步到前端
+python scripts/post_process_sprite.py   # 去棋盘 + 降到 32x32 + 量化 5 色
 rm -rf frontend/public/sprites && cp -r assets/sprites frontend/public/
 ```
 
-效果见 `docs/screenshot-v1.png`。
-
-### Sprite 老 OpenAI 备份方案
-
-
-
-`scripts/gen_sprites.py` 已写好，需要 OpenAI API key 才能跑：
-
-```bash
-export OPENAI_API_KEY=sk-...
-python scripts/gen_sprites.py        # 一次性生成 ~60 张 sprite 入仓 assets/sprites/
-python scripts/audit_sprites.py      # 校验完整性 + 调色板合规
-```
-
-资产清单：
-- 13 种 tile × 1 = 13
-- 2 种建筑（campfire / cooking_stove）× 1 = 2
-- 4 种 creature × 2 朝向 = 8
-- 10 种 plant × 1 = 10
-- agent 4 朝向（hash tint 区分玩家）= 4
-- 物品图标 × ~20
-
-预算估算：~60 张 × $0.04 = **< $3 一次性**。
-
-跑完后，前端 `tile-layer.ts` / `entity-layer.ts` 需要改用 `Sprite.from('...')` 替代当前的 `Graphics.rect/circle`。这是 ~1 天工作量。
-
-## 🔧 当前主要技术债
-
-1. **server warning**：`TickFrame.clock` 和 `.observations` 字段 dead_code（未实际使用）。无害但应清理。
-2. **survival-smoke.sh** 的 bash 寻路逻辑有 bug（没正确算 abs）——单测覆盖了真功能，这只是冒烟脚本不够好看，不阻塞。
-3. **agent 重生位置**完全随机；可改为"在死亡点附近 N 格"更合理。
-4. **mailbox 没有持久化进 SQLite**（snapshot 含 World 全字段所以有；但事件日志没单独 mail 事件除了 sent_mail 摘要）——观察上 OK，重启恢复 OK。
-5. **iron_sword/talisman_paper 等 T2 物品已在 ItemKind 枚举里但没有配方**（占位等 M6）。
-
-## 📊 提交历史
+## 提交历史
 
 ```
-53dcfeb feat: M5 社交（立牌 + 飞鸽）+ M9 skill markdown — 42 world tests pass, e2e green
-1c5678b feat: M4 战斗+怪物+PvP（attack action, creature_ai, night spawn） — 40 world tests pass
-f7afe67 plan: M4 战斗+怪物+PvP
-8f3c612 feat(cli): support gather/eat/craft/place/pickup/drop verbs; survival-smoke.sh
-c6b8d26 feat: M3 求生闭环（hunger/gather/eat/craft/place/death/respawn） — 38 unit + 3 integration tests
-d9e0c55 plan: M3 求生闭环（hunger/gather/craft/build/eat/death/respawn）
-defd2b6 feat: M1+M2 complete — server WS 推送、frontend PixiJS、scripts/demo.sh 验证全栈
-a02ecf7 feat(server+cli): axum+sqlx server with REST/WS + survivor CLI + smoke.sh — integration 2/2 + e2e green
-bfe7710 feat(world): complete crate (coord/tile/grid/clock/rng/action/event/agent/gen/observation/world) — 25 tests pass
-d384c8f plan: M1+M2 骨架与基础世界实施计划
-8a1b09e spec: 灵渊 v0.1 设计文档
+3a3a4ca feat(M8 v2): item 19 张 sprite 全部生成入仓（共 46 张）+ creature canonical 名补齐
+7069946 feat(UI): canvas 上直接点 agent 即聚焦
+6c9642f feat(UI): Esc 取消聚焦
+2810e3b feat: 聚焦 agent 时事件流相关事件加左金边高亮
+c4db460 feat: 夜晚色调克制版 + inventory chip 加 item sprite 图标
+68d1071 feat: 战斗浮字 + mini-map + SpectatorEntity.id 暴露
+ea40b36 fix(bot): hp<40 + 视野有 hostile 时逃跑
+de4c9c5 feat: agent inventory bar 聚焦时底部显示 + 昼夜/季节 CSS filter + bot 食物优先
+1bc365a feat(M10): survivor replay CLI 读 SQLite events
+bd10960 feat(M6-mini): 渡劫者 boss creature
+a901c66 feat(cli): survivor demo NPC 自动 AI bot
+8897f13 feat(M7): 关注模式 + 高亮 + bob + tick 心跳 + canvas resize 修
+1b86662 docs: STATUS 更新 M8
+0c1ab53 feat(M8): 27 张 sprite 入仓 + 前端 sprite-cache
+935e13c feat: STATUS doc + M8 sprite 脚本
+53dcfeb feat: M5 社交 + M9 skill markdown
+1c5678b feat: M4 战斗 + 怪物 + PvP
+f7afe67 plan: M4
+8f3c612 feat(cli): gather/eat/craft 等 verb + survival-smoke
+c6b8d26 feat: M3 求生闭环
+d9e0c55 plan: M3
+defd2b6 feat: M1+M2 complete
+a02ecf7 feat: server + CLI 骨架 + smoke
+bfe7710 feat: world crate 完整 25 测试
+d384c8f plan: M1+M2
+8a1b09e spec: v0.1 设计
 ```
 
-## 🎯 推荐继续顺序（如果你想接着推）
-
-1. **跑 sprite 生成**：`python scripts/gen_sprites.py`（需要 API key），改前端 layers 用 sprite，UI 立刻从 dev demo 变 product
-2. **加 boss / 渡劫**：丹炉合成 + 金丹 + 满 3 颗触发全图通告 boss，给一局加一个高光时刻
-3. **季节效果**：春草药 +1.5 / 夏夜怪 +30% / 冬覆雪 + 寒鸦，让循环不枯燥
-4. **关注模式 UI**：点击地图上的 agent → 切换到它视角 + 显示它最近动作日志，观战体验↑↑
-5. **replay 工具**：CLI 读 SQLite events，重播某 tick 区间到内存 World，输出最终状态截图
-
-—— 至此 v1 alpha 可玩、可观、可接 agent。
+—— **可观、可玩、可接 agent、有 NPC、有 boss、有动画、有声色（视觉而已）的 v2 alpha 完成**。
