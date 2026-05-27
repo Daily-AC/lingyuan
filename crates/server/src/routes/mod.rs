@@ -12,12 +12,14 @@ mod health;
 mod join;
 mod leave;
 mod observe;
+mod world_info;
 pub mod ws;
 
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health::health))
         .route("/api/v1/world/clock", get(clock::clock))
+        .route("/api/v1/world/info", get(world_info::world_info))
         .route("/api/v1/join", post(join::join))
         .route("/api/v1/observe", get(observe::observe))
         .route("/api/v1/act", post(act::act))

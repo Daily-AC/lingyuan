@@ -1,12 +1,18 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use tokio::sync::{broadcast, mpsc, Mutex};
-use world::{Action, AgentId, Observation, World};
+use world::{Action, AgentId, Observation, TickEvent, World};
 
 #[derive(Clone)]
 pub struct AppState {
     pub world: Arc<Mutex<World>>,
-    pub actions_tx: mpsc::Sender<ActionEnvelope>,
+    /// 每个 agent 在下一 tick 最多有一个待执行动作。
+    /// 重复入队的 act 会返回 409 already_queued，前一动作不被覆盖。
+    pub pending: Arc<Mutex<HashMap<AgentId, PendingAction>>>,
+    /// 上一 tick 中和该 agent 相关的事件（被打/打人/死/重生 等），observe 时附在
+    /// Observation.recent_events 上。
+    pub recent_events_by_agent: Arc<Mutex<HashMap<AgentId, Vec<TickEvent>>>>,
     pub frames_tx: broadcast::Sender<TickFrame>,
     pub db_tx: mpsc::Sender<crate::db::DbWrite>,
     pub config: crate::config::ServerConfig,
@@ -14,9 +20,9 @@ pub struct AppState {
 }
 
 #[derive(Debug, Clone)]
-pub struct ActionEnvelope {
-    pub agent: AgentId,
+pub struct PendingAction {
     pub action: Action,
+    pub will_resolve_at_tick: u64,
 }
 
 #[derive(Debug, Clone)]

@@ -6,7 +6,14 @@ pub async fn observe(
     AuthAgent { agent_id }: AuthAgent,
 ) -> Result<Json<world::Observation>, (StatusCode, &'static str)> {
     let w = s.world.lock().await;
-    w.observe(&agent_id)
-        .map(Json)
-        .ok_or((StatusCode::NOT_FOUND, "agent not found"))
+    let mut obs = w
+        .observe(&agent_id)
+        .ok_or((StatusCode::NOT_FOUND, "agent not found"))?;
+    drop(w);
+
+    let by_agent = s.recent_events_by_agent.lock().await;
+    if let Some(evts) = by_agent.get(&agent_id) {
+        obs.recent_events = evts.clone();
+    }
+    Ok(Json(obs))
 }
