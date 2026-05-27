@@ -265,6 +265,33 @@ async function main(): Promise<void> {
     }
   });
   stage.onAgentClicked(pickAgent);
+
+  // tick rate slider
+  const rateInput = el<HTMLInputElement>('tick-rate');
+  const rateVal = el<HTMLSpanElement>('tick-rate-val');
+  // 初始读 server
+  void fetch('http://127.0.0.1:7777/api/v1/world/tick_ms')
+    .then((r) => r.json())
+    .then((j: { tick_ms?: number }) => {
+      if (j.tick_ms !== undefined) {
+        rateInput.value = String(j.tick_ms);
+        rateVal.textContent = `${j.tick_ms}ms`;
+      }
+    })
+    .catch(() => {});
+  let pendingTimer: number | undefined;
+  rateInput.addEventListener('input', () => {
+    const ms = parseInt(rateInput.value, 10);
+    rateVal.textContent = `${ms}ms`;
+    if (pendingTimer !== undefined) clearTimeout(pendingTimer);
+    pendingTimer = window.setTimeout(() => {
+      void fetch('http://127.0.0.1:7777/api/v1/world/tick_ms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ms }),
+      });
+    }, 250);
+  });
   stage.setManualPanListener(() => {
     // 手动拖动/缩放后退出 focus 模式
     renderAgents(lastAgents, null, pickAgent);
