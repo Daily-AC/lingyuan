@@ -126,25 +126,31 @@ def lingyuan_observe(format: str = "json") -> dict[str, Any]:
 def lingyuan_act(action: dict[str, Any]) -> dict[str, Any]:
     """发动作。action 是 {kind: <verb>, data: {...}} 形态。
 
-    支持的 kind：
+    支持的 kind（完整 craft recipe 列表/inputs 见 lingyuan_world_info）：
       - move: data={dir: "north"|"south"|"east"|"west"}
       - wait: data={}
-      - gather: data={target: {x, y}}
+      - gather: data={target: {x, y}}      # manhattan ≤ 1
       - eat: data={item: "<snake_case_item>"}
       - craft: data={recipe: "<recipe_id>"}
-      - place: data={item: "<kit>", pos: {x, y}}
-      - pick_up: data={pos: {x, y}}
+      - place: data={item: "<kit>", pos: {x, y}}     # manhattan ≤ 1
+      - pick_up: data={pos: {x, y}}                  # manhattan ≤ 1
       - drop: data={item: "<item>", n: <int>}
-      - attack: data={target: {target_kind: "agent"|"creature", target_id: <id>}}
+      - attack: data={target: {target_kind: "agent"|"creature", target_id: <id>}}  # manhattan ≤ 1
       - write_sign: data={pos: {x, y}, text: "<≤200 字>"}
       - send_mail: data={to: "<agent_name>", text: "<≤500 字>"}
 
-    返回 {accepted, queued_for_tick}。"""
+    成功返回 {accepted: true, accepted_at_tick, will_resolve_at_tick, queue_depth}。
+    同 tick 内若已有 action 排队，返回 HTTP 409 + {accepted: false,
+    reason: "already_queued", existing_action, will_resolve_at_tick}——本工具
+    把它转成 {ok: false, already_queued: true, ...}。规则：等到
+    will_resolve_at_tick 落地后再发下一个动作；不要在同 tick 内连发。"""
     t = _load_token()
     if t is None:
         return {"ok": False, "error": "未注册，先 lingyuan_join"}
     with _client() as c:
         r = c.post("/api/v1/act", json=action, headers=_auth_headers(t))
+        if r.status_code == 409:
+            return {"ok": False, "already_queued": True, **r.json()}
         if r.status_code != 200:
             return {"ok": False, "error": f"HTTP {r.status_code}: {r.text}"}
         return {"ok": True, **r.json()}
@@ -152,11 +158,21 @@ def lingyuan_act(action: dict[str, Any]) -> dict[str, Any]:
 
 @app.tool()
 def lingyuan_world_info() -> dict[str, Any]:
-    """获取全局时钟（年/季/日/刻/tick）。不需要 token。"""
+    """全局世界信息。不需要 token。
+
+    返回：
+      - clock: {tick, day, season, phase, tick_in_day}
+      - constants: {vision_radius, interaction_range, inventory_slots,
+        max_hp/hunger/stamina, *_period_ticks, weapon_damage[...] ...}
+      - recipes: [{id, inputs:[{item,n}], output:{item,n}, station}] 全 9 条
+      - items: [{id, name_zh, is_food, nutrition?, stack_size}] 全 19 个
+
+    必看：开局 craft 前先看 recipes，攻击前看 weapon_damage 选武器，
+    采集/攻击/放置 距离都受 constants.interaction_range（=1 manhattan）限。"""
     with _client() as c:
-        r = c.get("/api/v1/world/clock")
+        r = c.get("/api/v1/world/info")
         if r.status_code != 200:
-            return {"ok": False, "error": f"HTTP {r.status_code}"}
+            return {"ok": False, "error": f"HTTP {r.status_code}: {r.text}"}
         return {"ok": True, **r.json()}
 
 

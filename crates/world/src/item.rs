@@ -54,6 +54,15 @@ impl ItemKind {
         20
     }
 
+    pub fn all() -> &'static [ItemKind] {
+        use ItemKind::*;
+        &[
+            Bamboo, Pinewood, Stone, Flint, Clay, Vine, Reed, Lingzhi,
+            Mushroom, RedBerry, BambooSpear, StoneAxe, Rope, ClayPot,
+            CookedMushroom, CookedBerry, RiceCake, CampfireKit, CookingStoveKit,
+        ]
+    }
+
     pub fn name_zh(self) -> &'static str {
         match self {
             ItemKind::Bamboo => "竹",

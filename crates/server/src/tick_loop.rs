@@ -1,9 +1,8 @@
 use crate::{
     db::DbWrite,
-    state::{ActionEnvelope, AppState, SpectatorAgent, SpectatorEntity, SpectatorView, TickFrame},
+    state::{AppState, SpectatorAgent, SpectatorEntity, SpectatorView, TickFrame},
 };
 use std::time::Duration;
-use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 use world::World;
 
@@ -59,6 +58,35 @@ fn collect_spectator_entities(w: &World) -> Vec<SpectatorEntity> {
     out
 }
 
+/// 一个事件是否和某 agent 直接相关（被打/打人/失败/死/重生 等）。
+/// 不含全局事件（boss spawn / 季节切换），那些走 spectator 流。
+fn event_involves_agent(e: &world::TickEvent, aid: &world::AgentId) -> bool {
+    use world::TickEvent::*;
+    match e {
+        AgentJoined { agent, .. }
+        | AgentLeft { agent, .. }
+        | AgentMoved { agent, .. }
+        | AgentMoveFailed { agent, .. }
+        | AgentGathered { agent, .. }
+        | AgentGatherFailed { agent, .. }
+        | AgentAte { agent, .. }
+        | AgentCrafted { agent, .. }
+        | AgentCraftFailed { agent, .. }
+        | AgentPlaced { agent, .. }
+        | AgentPickedUp { agent, .. }
+        | AgentDropped { agent, .. }
+        | AgentDied { agent, .. }
+        | AgentRespawned { agent, .. }
+        | AgentWroteSign { agent, .. }
+        | AgentAttackFailed { agent, .. } => agent == aid,
+        AgentAttackedAgent { attacker, target, .. } => attacker == aid || target == aid,
+        AgentAttackedCreature { attacker, .. } => attacker == aid,
+        CreatureAttackedAgent { target, .. } => target == aid,
+        AgentSentMail { from, .. } => from == aid,
+        _ => false,
+    }
+}
+
 fn serde_plain<T: serde::Serialize>(v: &T) -> String {
     serde_json::to_value(v)
         .ok()
@@ -66,7 +94,7 @@ fn serde_plain<T: serde::Serialize>(v: &T) -> String {
         .unwrap_or_else(|| "unknown".into())
 }
 
-pub async fn run(state: AppState, mut rx: mpsc::Receiver<ActionEnvelope>) {
+pub async fn run(state: AppState) {
     use std::sync::atomic::Ordering;
     let mut cur_ms = state.tick_ms.load(Ordering::Relaxed);
     let mut ticker = tokio::time::interval(Duration::from_millis(cur_ms));
@@ -82,13 +110,34 @@ pub async fn run(state: AppState, mut rx: mpsc::Receiver<ActionEnvelope>) {
             info!(tick_ms = cur_ms, "tick rate changed");
         }
 
-        let mut actions = Vec::new();
-        while let Ok(env) = rx.try_recv() {
-            actions.push((env.agent, env.action));
-        }
+        // 排空 pending 表：每个 agent 至多一个 action 落地。
+        let actions: Vec<_> = {
+            let mut pending = state.pending.lock().await;
+            pending
+                .drain()
+                .map(|(aid, p)| (aid, p.action))
+                .collect()
+        };
 
         let mut w = state.world.lock().await;
         let events = w.step(actions);
+
+        // 把每个 agent 相关的事件落到共享缓存里，observe 时读出来。
+        // 完整覆写而不是追加：只暴露"上一 tick 发生的事"，避免无限堆。
+        {
+            let mut by_agent = state.recent_events_by_agent.lock().await;
+            by_agent.clear();
+            for aid in w.agents.keys() {
+                let rel: Vec<world::TickEvent> = events
+                    .iter()
+                    .filter(|e| event_involves_agent(e, aid))
+                    .cloned()
+                    .collect();
+                if !rel.is_empty() {
+                    by_agent.insert(aid.clone(), rel);
+                }
+            }
+        }
 
         let observations = w
             .agents

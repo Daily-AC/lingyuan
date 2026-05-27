@@ -1,6 +1,6 @@
 //! 简单规则 NPC：observe → decide → act 循环。
 //! 决策优先级：
-//!   1. 受击 / 看到 hostile 在相邻 → 反击（用最佳武器）
+//!   1. 上 tick 被 agent 打 / 视野有 hostile creature → 反击或逃
 //!   2. hunger < 35 且 inventory 有食物 → eat
 //!   3. stamina < 12 → wait
 //!   4. 看到可采 plant 在相邻 → gather
@@ -147,6 +147,7 @@ fn decide(obs: &serde_json::Value) -> serde_json::Value {
     let hunger = obs["self"]["status"]["hunger"].as_i64().unwrap_or(100);
     let stamina = obs["self"]["status"]["stamina"].as_i64().unwrap_or(100);
     let my_pos = parse_pos(&obs["self"]["pos"]);
+    let my_id = obs["self"]["id"].as_str().unwrap_or("");
     let inventory: Vec<(String, i64)> = obs["self"]["inventory"]
         .as_array()
         .map(|arr| {
@@ -162,22 +163,64 @@ fn decide(obs: &serde_json::Value) -> serde_json::Value {
         .unwrap_or_default();
     let entities = obs["visible_entities"].as_array();
 
-    // 1. hp 低 + 视野内有 hostile → 逃
+    // 上 tick 被哪个 agent 攻击了？把它当 hostile。
+    let attacker_ids: std::collections::HashSet<String> = obs["recent_events"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter(|ev| ev["kind"] == "agent_attacked_agent")
+                .filter(|ev| ev["data"]["target"].as_str().unwrap_or("") == my_id)
+                .filter_map(|ev| ev["data"]["attacker"].as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // 1. hp 低 + 视野内有 hostile（creature 或 attacker agent）→ 逃
     if let Some(arr) = entities {
-        let hostiles: Vec<((i32, i32), i32)> = arr
+        // creature hostiles
+        let creature_hostiles: Vec<((i32, i32), i32)> = arr
             .iter()
             .filter(|e| e["kind"] == "creature" && e["hostile"].as_bool().unwrap_or(false))
             .map(|e| (parse_pos(&e["pos"]), dist(my_pos, parse_pos(&e["pos"]))))
             .collect();
+        // agent attackers in fov
+        let agent_attackers: Vec<(&serde_json::Value, (i32, i32), i32)> = arr
+            .iter()
+            .filter(|e| e["kind"] == "agent")
+            .filter(|e| {
+                attacker_ids.contains(e["id"].as_str().unwrap_or(""))
+            })
+            .map(|e| {
+                let p = parse_pos(&e["pos"]);
+                (e, p, dist(my_pos, p))
+            })
+            .collect();
+
+        // 低血逃跑：哪个 hostile（creature 或 agent）更近，朝反方向走
         if hp < 40 {
-            if let Some((p, _)) = hostiles.iter().min_by_key(|(_, d)| *d) {
-                // 朝相反方向走一步
+            let nearest_creature = creature_hostiles.iter().min_by_key(|(_, d)| *d).map(|x| (x.0, x.1));
+            let nearest_attacker = agent_attackers.iter().min_by_key(|(_, _, d)| *d).map(|x| (x.1, x.2));
+            let nearest = match (nearest_creature, nearest_attacker) {
+                (Some(c), Some(a)) => Some(if c.1 <= a.1 { c } else { a }),
+                (Some(c), None) => Some(c),
+                (None, Some(a)) => Some(a),
+                (None, None) => None,
+            };
+            if let Some((p, _)) = nearest {
                 let opp = (my_pos.0 - p.0, my_pos.1 - p.1);
                 return move_toward(my_pos, (my_pos.0 + opp.0, my_pos.1 + opp.1));
             }
         }
-        // 相邻有 hostile 且 hp 够 → 反击
+        // hp 够 + 相邻 hostile → 反击。攻击者 agent 优先于 creature（更直接的威胁）。
         if hp >= 40 {
+            if let Some((e, _, _)) = agent_attackers
+                .iter()
+                .filter(|(_, _, d)| *d <= 1)
+                .min_by_key(|(_, _, d)| *d)
+            {
+                let id = e["id"].as_str().unwrap_or("");
+                return attack_agent(id);
+            }
             if let Some((e, _)) = arr
                 .iter()
                 .filter(|e| e["kind"] == "creature" && e["hostile"].as_bool().unwrap_or(false))
@@ -386,6 +429,13 @@ fn attack_creature(id: u64) -> serde_json::Value {
     })
 }
 
+fn attack_agent(id: &str) -> serde_json::Value {
+    serde_json::json!({
+        "kind":"attack",
+        "data": {"target": { "target_kind": "agent", "target_id": id }}
+    })
+}
+
 fn craft(recipe: &str) -> serde_json::Value {
     serde_json::json!({"kind":"craft","data":{"recipe":recipe}})
 }
@@ -424,4 +474,96 @@ fn find_walkable_neighbor(my_pos: (i32, i32), obs: &serde_json::Value) -> Option
 #[allow(dead_code)]
 fn _ensure_rng_used() {
     let _: u32 = rand::thread_rng().gen();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 构造一个最小可决策的 observation。
+    fn base_obs(my_id: &str, hp: i64, hunger: i64, stamina: i64) -> serde_json::Value {
+        serde_json::json!({
+            "tick": 100,
+            "self": {
+                "id": my_id,
+                "name": "test",
+                "pos": {"x": 10, "y": 10},
+                "status": {"hp": hp, "hunger": hunger, "stamina": stamina, "warmth": 0, "sanity": 100},
+                "state": "alive",
+                "inventory": [],
+            },
+            "vision": {"radius": 6, "tiles": []},
+            "visible_entities": [],
+            "nearby_signs": [],
+            "mail": [],
+            "recent_events": [],
+        })
+    }
+
+    #[test]
+    fn bot_counterattacks_adjacent_agent_attacker() {
+        let mut obs = base_obs("ag_me", 80, 80, 80);
+        obs["recent_events"] = serde_json::json!([
+            {
+                "kind": "agent_attacked_agent",
+                "data": {
+                    "attacker": "ag_foe",
+                    "target": "ag_me",
+                    "damage": 8,
+                    "weapon": null
+                }
+            }
+        ]);
+        // attacker 站在隔壁 (manhattan == 1)
+        obs["visible_entities"] = serde_json::json!([
+            { "kind": "agent", "id": "ag_foe", "name": "foe", "pos": {"x": 11, "y": 10}, "hp": 80 }
+        ]);
+        let act = decide(&obs);
+        assert_eq!(act["kind"], "attack");
+        assert_eq!(act["data"]["target"]["target_kind"], "agent");
+        assert_eq!(act["data"]["target"]["target_id"], "ag_foe");
+    }
+
+    #[test]
+    fn bot_flees_low_hp_when_attacker_in_fov() {
+        let mut obs = base_obs("ag_me", 25, 80, 80);
+        obs["recent_events"] = serde_json::json!([
+            {
+                "kind": "agent_attacked_agent",
+                "data": {"attacker": "ag_foe", "target": "ag_me", "damage": 8, "weapon": null}
+            }
+        ]);
+        // attacker 在东边，逃应当向西
+        obs["visible_entities"] = serde_json::json!([
+            { "kind": "agent", "id": "ag_foe", "name": "foe", "pos": {"x": 13, "y": 10}, "hp": 80 }
+        ]);
+        let act = decide(&obs);
+        assert_eq!(act["kind"], "move");
+        assert_eq!(act["data"]["dir"], "west");
+    }
+
+    #[test]
+    fn bot_ignores_attacker_not_in_fov() {
+        // 即便 recent_events 有受击记录，但 attacker 不在 fov，就不应进入反击/逃跑分支。
+        // 应回到正常采集/移动决策（HP/饥饿都正常）。
+        let mut obs = base_obs("ag_me", 80, 80, 80);
+        obs["recent_events"] = serde_json::json!([
+            {
+                "kind": "agent_attacked_agent",
+                "data": {"attacker": "ag_foe", "target": "ag_me", "damage": 8, "weapon": null}
+            }
+        ]);
+        obs["visible_entities"] = serde_json::json!([]);
+        // vision tiles 全是 grass，bot 应当随机走或 wait（不应该 attack）
+        let mut tiles = vec![];
+        for d in [(1i32, 0i32), (-1, 0), (0, 1), (0, -1)] {
+            tiles.push(serde_json::json!({
+                "pos": {"x": 10+d.0, "y": 10+d.1},
+                "tile": {"kind": "grass"}
+            }));
+        }
+        obs["vision"]["tiles"] = serde_json::Value::Array(tiles);
+        let act = decide(&obs);
+        assert_ne!(act["kind"], "attack", "should not attack when attacker not visible");
+    }
 }

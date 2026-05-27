@@ -6,6 +6,7 @@ mod routes;
 mod state;
 mod tick_loop;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tracing::info;
@@ -31,13 +32,15 @@ async fn main() -> anyhow::Result<()> {
     info!(tick = world.clock.tick, agents = world.agent_count(), "world loaded");
     let world = Arc::new(Mutex::new(world));
 
-    let (actions_tx, actions_rx) = mpsc::channel(1024);
+    let pending = Arc::new(Mutex::new(HashMap::new()));
+    let recent_events_by_agent = Arc::new(Mutex::new(HashMap::new()));
     let (frames_tx, _) = broadcast::channel(64);
     let (db_tx, db_rx) = mpsc::channel(256);
 
     let state = state::AppState {
         world: world.clone(),
-        actions_tx,
+        pending,
+        recent_events_by_agent,
         frames_tx: frames_tx.clone(),
         db_tx,
         config: cfg.clone(),
@@ -45,7 +48,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     tokio::spawn(db::writer_task(db.clone(), db_rx));
-    tokio::spawn(tick_loop::run(state.clone(), actions_rx));
+    tokio::spawn(tick_loop::run(state.clone()));
 
     let app = routes::router(state);
     let listener = tokio::net::TcpListener::bind(&cfg.bind_addr).await?;
