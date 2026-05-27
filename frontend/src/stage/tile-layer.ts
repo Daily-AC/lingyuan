@@ -1,5 +1,6 @@
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Sprite } from 'pixi.js';
 import type { TileKind, TileMsg } from '../types';
+import { getCached, tryLoad } from './sprite-cache';
 
 export const TILE_SIZE = 32;
 
@@ -21,21 +22,49 @@ const TILE_COLORS: Record<TileKind, number> = {
 
 export class TileLayer {
   readonly container: Container;
-  private readonly graphics: Graphics;
+  private readonly fallbackGraphics: Graphics;
+  private readonly spriteContainer: Container;
+  private lastTiles: TileMsg[] = [];
 
   constructor() {
     this.container = new Container();
     this.container.label = 'tile-layer';
-    this.graphics = new Graphics();
-    this.container.addChild(this.graphics);
+    this.fallbackGraphics = new Graphics();
+    this.spriteContainer = new Container();
+    this.spriteContainer.label = 'tile-sprites';
+    this.container.addChild(this.fallbackGraphics);
+    this.container.addChild(this.spriteContainer);
   }
 
   setTiles(tiles: TileMsg[]): void {
-    const g = this.graphics;
-    g.clear();
-    for (const t of tiles) {
-      const color = TILE_COLORS[t.kind];
-      g.rect(t.pos.x * TILE_SIZE, t.pos.y * TILE_SIZE, TILE_SIZE, TILE_SIZE).fill(color);
+    this.lastTiles = tiles;
+    this.render();
+  }
+
+  private render(): void {
+    const fb = this.fallbackGraphics;
+    fb.clear();
+    this.spriteContainer.removeChildren();
+    let loadedAny = false;
+    for (const t of this.lastTiles) {
+      const tex = getCached('tile', t.kind);
+      if (tex !== null) {
+        const s = new Sprite(tex);
+        s.x = t.pos.x * TILE_SIZE;
+        s.y = t.pos.y * TILE_SIZE;
+        s.width = TILE_SIZE;
+        s.height = TILE_SIZE;
+        this.spriteContainer.addChild(s);
+        loadedAny = true;
+      } else {
+        tryLoad('tile', t.kind, () => this.render());
+        const color = TILE_COLORS[t.kind];
+        fb.rect(t.pos.x * TILE_SIZE, t.pos.y * TILE_SIZE, TILE_SIZE, TILE_SIZE).fill(color);
+      }
+    }
+    if (loadedAny && this.spriteContainer.children.length === this.lastTiles.length) {
+      // 所有 tile 都用上 sprite，把 fallback 清掉
+      fb.clear();
     }
   }
 }
