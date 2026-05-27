@@ -36,9 +36,26 @@ interface AgentRenderState {
   targetX: number;
   targetY: number;
   lerpStartMs: number;
+  /** 受击红闪剩余 ms（>0 时 tint 偏红）*/
+  hitFlashMs: number;
+  /** 原 tint，用于恢复 */
+  baseTint: number;
 }
 
 const LERP_MS = 220;
+
+function lerpColor(a: number, b: number, t: number): number {
+  const ar = (a >> 16) & 0xff,
+    ag = (a >> 8) & 0xff,
+    ab = a & 0xff;
+  const br = (b >> 16) & 0xff,
+    bg = (b >> 8) & 0xff,
+    bb = b & 0xff;
+  const r = Math.round(ar + (br - ar) * t);
+  const g = Math.round(ag + (bg - ag) * t);
+  const bb2 = Math.round(ab + (bb - ab) * t);
+  return (r << 16) | (g << 8) | bb2;
+}
 
 export class AgentLayer {
   readonly container: Container;
@@ -195,7 +212,15 @@ export class AgentLayer {
       targetX: cx,
       targetY: cy,
       lerpStartMs: performance.now(),
+      hitFlashMs: 0,
+      baseTint: tint,
     };
+  }
+
+  /** 外部调用：触发受击红闪 */
+  flashHit(agentId: string): void {
+    const s = this.states.get(agentId);
+    if (s !== undefined) s.hitFlashMs = 250;
   }
 
   private position(st: AgentRenderState): void {
@@ -212,8 +237,12 @@ export class AgentLayer {
     st.container.alpha = st.agent.state === 'alive' ? 1 : 0.55;
   }
 
+  private lastTickMs = performance.now();
+
   private animate = (): void => {
     const now = performance.now();
+    const dtMs = now - this.lastTickMs;
+    this.lastTickMs = now;
     const t = now / 1000;
     for (const [aid, s] of this.states) {
       // lerp 平滑移动
@@ -241,6 +270,18 @@ export class AgentLayer {
         s.selectionRing.alpha = breath;
         const sc = 1 + 0.06 * Math.sin(t * 2.4);
         s.selectionRing.scale.set(sc);
+      }
+      // 受击红闪
+      if (s.hitFlashMs > 0) {
+        s.hitFlashMs = Math.max(0, s.hitFlashMs - dtMs);
+        if (s.baseSprite !== null) {
+          // 250 -> 0 线性回到本 tint；红色叠加
+          const t01 = s.hitFlashMs / 250;
+          // tint 在 baseTint 和 0xff3030 之间插值
+          s.baseSprite.tint = lerpColor(s.baseTint, 0xff3030, t01);
+        }
+      } else if (s.baseSprite !== null && s.baseSprite.tint !== s.baseTint) {
+        s.baseSprite.tint = s.baseTint;
       }
     }
   };

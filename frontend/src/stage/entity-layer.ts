@@ -112,8 +112,30 @@ export class EntityLayer {
     if (usedFallback) {
       this.container.addChild(fallbackG);
     }
+    // creature hp 条
+    const barG = new Graphics();
+    let anyBar = false;
+    for (const e of entities) {
+      if (!e.kind.startsWith('creature:') || e.label === null) continue;
+      const m = e.label.match(/^(\d+)\/(\d+)$/);
+      if (m === null) continue;
+      const cur = parseInt(m[1]!, 10);
+      const max = parseInt(m[2]!, 10);
+      if (max <= 0) continue;
+      const ratio = Math.max(0, Math.min(1, cur / max));
+      const bx = e.pos.x * tileSize + tileSize * 0.1;
+      const by = e.pos.y * tileSize - 1;
+      const bw = tileSize * 0.8;
+      const bh = 3;
+      barG.rect(bx, by, bw, bh).fill({ color: 0x2a2826, alpha: 0.8 });
+      barG.rect(bx, by, bw * ratio, bh).fill({ color: 0xb83a2e });
+      anyBar = true;
+    }
+    if (anyBar) this.container.addChild(barG);
+    // 其他实体的文字 label（drop 数量等），creature label 已上 hp 条不再画字
     for (const e of entities) {
       if (e.label === null) continue;
+      if (e.kind.startsWith('creature:')) continue;
       const t = new Text({
         text: e.label,
         style: { fontSize: 7, fill: 0xf2efe4, fontFamily: 'monospace' },

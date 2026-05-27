@@ -42,7 +42,7 @@ fn collect_spectator_entities(w: &World) -> Vec<SpectatorEntity> {
         out.push(SpectatorEntity {
             pos: c.pos,
             kind: format!("creature:{}", serde_plain(&c.kind)),
-            label: Some(format!("hp{}", c.hp)),
+            label: Some(format!("{}/{}", c.hp, c.kind.max_hp())),
             id: Some(c.id),
         });
     }
